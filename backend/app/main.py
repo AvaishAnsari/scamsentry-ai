@@ -9,19 +9,26 @@ backend_dir = Path(__file__).resolve().parent.parent
 if str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
 
-from app.core.database import Base, engine
+from app.core.database import Base, engine, SessionLocal
 import app.models  # noqa: F401 - ensure all models are registered with Base.metadata
 from app.routes.admin import router as admin_router
 from app.routes.alerts import router as alerts_router
 from app.routes.lookup import router as lookup_router
 from app.routes.map import router as map_router
 from app.routes.reports import router as reports_router
+from app.services.seed_data import seed_if_empty
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize all database tables safely on application startup
+    # 1. Create all database tables (idempotent — never drops existing data)
     Base.metadata.create_all(bind=engine)
+    # 2. Auto-seed demo data on first run only (skipped if data already exists)
+    db = SessionLocal()
+    try:
+        seed_if_empty(db)
+    finally:
+        db.close()
     yield
 
 
