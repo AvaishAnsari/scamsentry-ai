@@ -22,8 +22,29 @@ export interface RecentReportSummary {
   reported_at: string;
 }
 
+export interface EvidenceItem {
+  id: string;
+  type: 'indicator' | 'domain_pattern' | 'brand_impersonation' | 'related_phone' | 'related_upi' | 'related_url' | 'other';
+  title: string;
+  description: string;
+  source: string;
+  confidence?: number; // 0 - 100 percentage
+  severity?: 'critical' | 'high' | 'medium' | 'low' | 'info';
+  explanation: string;
+}
+
+export interface RelatedIndicator {
+  id: string;
+  type: 'phone' | 'upi' | 'url' | 'category' | 'impersonated_brand' | 'brand' | 'domain';
+  label: string;
+  value: string;
+  relationship: string;
+  risk_level?: 'high' | 'suspicious' | 'safe' | 'unknown';
+}
+
 export interface LookupResult {
   query: string;
+  target_value?: string;
   target_type: IdentifierType;
   verdict: Verdict;
   risk_level: 'safe' | 'suspicious' | 'high' | 'verified';
@@ -47,6 +68,12 @@ export interface LookupResult {
   business_category?: string;
   verified_date?: string;
   is_mock?: boolean;
+  // Optional Investigation Mode fields
+  last_checked?: string;
+  evidence_items?: EvidenceItem[];
+  related_indicators?: RelatedIndicator[];
+  confidence?: number;
+  evidence_source?: string;
 }
 
 export interface ScamReportInput {
@@ -124,4 +151,3 @@ export interface PlatformStats {
   top_reported_scam: string;
   most_active_area: string;
 }
-

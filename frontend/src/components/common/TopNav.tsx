@@ -54,6 +54,12 @@ export const TopNav: React.FC = () => {
                 Check
               </span>
             </NavLink>
+            <NavLink to="/investigate" className={navLinkClass}>
+              <span className="flex items-center gap-1.5">
+                <Shield className="w-4 h-4" />
+                Investigate
+              </span>
+            </NavLink>
             <NavLink to="/map" className={navLinkClass}>
               <span className="flex items-center gap-1.5">
                 <MapPin className="w-4 h-4" />

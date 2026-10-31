@@ -102,3 +102,19 @@ uvicorn app.main:app --port 8001 --reload
 If Avaish's backend is temporarily stopped:
 * The extension gracefully transitions to an informative **Backend Server Unavailable** card with a 1-click **Enable Dev Mock Mode** button.
 * In Mock Mode, you can use the **Quick Test URLs** buttons at the bottom of the popup (`Scam Link`, `Suspicious`, `No Reports`, `Verified`) to demonstrate all 4 states for judges and evaluators without requiring a live database.
+
+---
+
+## 🔍 Investigation Mode Integration ("Investigate Why")
+
+The popup includes a prominent **"Investigate Why (Deep Clue Analysis)"** button.
+Clicking it immediately opens the web platform at:
+```text
+http://localhost:3000/investigate?url=<encoded-url>
+```
+This launches **ScamSentry AI Investigation Mode**:
+- **Why is this suspicious?**: Transparent evidence items with confidence scores and threat sources.
+- **Visual Scam Connection Graph**: Radial graph linking the suspect URL to impersonated brands, scam category, connected phone numbers, and UPI VPAs.
+- **Evidence Sources**: Community crowdsourced intelligence, heuristic crawlers, and official registries.
+- **Help Protect Others**: Anonymous community report form with real backend error handling.
+- **Scam Emergency Mode**: "I Already Lost Money" immediate 4-step emergency guidance (1930 helpline, bank lock, dispute process).

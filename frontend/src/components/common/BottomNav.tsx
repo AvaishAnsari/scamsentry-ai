@@ -55,6 +55,14 @@ export const BottomNav: React.FC = () => {
                   Check a Number / UPI / Link
                 </Link>
                 <Link
+                  to="/investigate"
+                  onClick={() => setMenuOpen(false)}
+                  className="flex items-center gap-3 px-3 py-3 text-sm font-semibold text-ink hover:bg-surface rounded-btn"
+                >
+                  <Shield className="w-4 h-4 text-purple-600" />
+                  Investigation Mode
+                </Link>
+                <Link
                   to="/report"
                   onClick={() => setMenuOpen(false)}
                   className="flex items-center gap-3 px-3 py-3 text-sm font-semibold text-ink hover:bg-surface rounded-btn"

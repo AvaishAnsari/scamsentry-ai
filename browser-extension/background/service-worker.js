@@ -2,7 +2,7 @@
 // Privacy-First: Does not monitor web navigation or collect browsing history.
 
 const DEFAULT_CONFIG = {
-  backendUrl: 'http://localhost:8001',
+  backendUrl: 'http://localhost:8000',
   lookupEndpoint: '/api/lookup',
   webAppUrl: 'http://localhost:3000',
   forceMock: false,
@@ -22,5 +22,5 @@ chrome.runtime.onInstalled.addListener(() => {
     }
   });
 
-  console.log('[ScamSentry Extension] Configured for Avaish\'s universal lookup API at http://localhost:8001/api/lookup.');
+  console.log('[ScamSentry Extension] Configured for Avaish\'s universal lookup API at http://localhost:8000/api/lookup.');
 });
