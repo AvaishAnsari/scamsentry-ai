@@ -98,7 +98,7 @@ export const TopNav: React.FC = () => {
             }`}
             title={
               isLive
-                ? 'Connected to real FastAPI backend at localhost:8000'
+                ? 'Connected to live FastAPI backend API'
                 : 'Backend offline: Using built-in realistic mock intelligence engine'
             }
           >

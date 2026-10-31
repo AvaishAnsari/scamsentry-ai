@@ -17,7 +17,15 @@ import {
 } from './mockData';
 
 // Centralized API configuration
-export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '');
+// In production (Vercel deployment), defaults to '' for same-origin /api routes
+// In local development (npm run dev), defaults to 'http://localhost:8000'
+// Can be overridden anytime via VITE_API_BASE_URL environment variable
+const defaultBaseUrl = import.meta.env.PROD ? '' : 'http://localhost:8000';
+export const API_BASE_URL = (
+  import.meta.env.VITE_API_BASE_URL !== undefined
+    ? import.meta.env.VITE_API_BASE_URL
+    : defaultBaseUrl
+).replace(/\/$/, '');
 const DEFAULT_TIMEOUT_MS = 5000;
 
 /**
