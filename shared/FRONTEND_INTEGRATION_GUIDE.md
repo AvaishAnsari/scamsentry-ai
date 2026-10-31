@@ -3,11 +3,33 @@
 > **Target Developer:** Sartaj (Frontend Lead)  
 > **Backend Developer:** Avaish (Backend Lead)  
 > **Backend Server:** `http://localhost:8000`  
-> **Last Verified:** October 31, 2026 (Milestone 4 & Integration Review Complete)
+> **Architecture Concept:** `CHECK → QUICK REPORT → COMMUNITY VERIFICATION → GET SAFETY GUIDANCE → PROTECT OTHERS`  
+> **Last Updated:** October 31, 2026 (Quick Reporting & Community Signal Progression)
 
 ---
 
-## 1. Local Development Setup & Environment Variables
+## 1. Core Architecture & Verification Principles
+
+Following mentor feedback, ScamSentry AI separates **community intelligence signals** from **legal accusations**:
+
+1. **One Report ≠ Confirmed Scam:**  
+   An initial report flags an identifier as `UNDER_REVIEW`. It is **never** labeled as a confirmed scam. This prevents false accusations and malicious report-bombing.
+2. **Quick Report Flow:**  
+   Users only need to provide the **Suspicious Identifier** and **Scam Category**. Detailed descriptions and evidence links are completely **optional**, making reporting fast and frictionless.
+3. **Multi-Signal Progression:**  
+   Risk confidence increases **only** when multiple independent reporters (different salted client fingerprints), geographic spread, and consistent scam categories corroborate the signal.
+4. **Immediate User Value (Safety Guidance):**  
+   Reporting users are immediately given tailored next-step safety actions (e.g. freezing UPI references, revoking app permissions, changing credentials) to protect themselves and others.
+5. **Community Impact:**  
+   Every report serves as an early warning for others. There are **zero financial bounties** for reporting, avoiding financial incentives for fake reports.
+
+### Safe Copy Guidelines for Frontend
+- ✅ **Use:** `"Reported by community members"`, `"Under review"`, `"Multiple independent reports detected"`, `"High risk based on community signals"`
+- ❌ **Avoid:** `"This person is a criminal"`, `"Legally confirmed scammer"`, `"Guilty of fraud"`
+
+---
+
+## 2. Local Development Setup & Environment Variables
 
 ### Backend Server URL
 The FastAPI backend server runs locally on:
@@ -16,17 +38,16 @@ http://localhost:8000
 ```
 
 ### Vite Frontend Configuration
-In your `frontend/` directory, set the API base URL in your `.env` or `.env.local` file:
+In your `frontend/` directory, set the API base URL in `.env` or `.env.local`:
 ```env
 # frontend/.env or frontend/.env.local
 VITE_API_BASE_URL=http://localhost:8000
 ```
 
-In your React/Vite API client (e.g. `src/api/client.js` or `src/utils/api.ts`):
+In your React/Vite API client:
 ```typescript
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
-// Example fetch wrapper
 export async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const url = `${API_BASE_URL}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
   const response = await fetch(url, {
@@ -47,44 +68,42 @@ export async function apiFetch<T>(endpoint: string, options: RequestInit = {}): 
 ```
 
 ### CORS Configuration
-The backend explicitly permits local Vite and React development:
+The backend explicitly permits local Vite development:
 - `http://localhost:5173` (Standard Vite dev server)
 - `http://127.0.0.1:5173`
-- `http://localhost:3000` (React dev server fallback)
-- `http://127.0.0.1:3000`
-- `http://localhost:8000` (Direct origin)
+- `http://localhost:3000` / `http://127.0.0.1:3000`
+- `http://localhost:8000`
 - **Supported Methods:** `GET`, `POST`, `OPTIONS`
-- **Supported Headers:** All standard headers (`Content-Type`, `Authorization`, `X-Forwarded-For`, etc.)
 - **Credentials:** Allowed (`allow_credentials=True`)
 
-> **Path Dual-Routing Notice:**  
-> All API endpoints are mounted on **both** `/api/<endpoint>` and root `/<endpoint>` (e.g. `POST /api/lookup` and `POST /lookup` both work identically). You do not need to worry about route prefix discrepancies.
+> **Path Dual-Routing:**  
+> All API endpoints are mounted on **both** `/api/<endpoint>` and root `/<endpoint>` (e.g. `POST /api/lookup` and `POST /lookup` work identically).
 
 ---
 
-## 2. Interactive Demo Queries Cheatsheet
+## 3. Interactive Demo Queries Cheatsheet
 
-Use these exact queries during hackathon presentations and local UI testing:
+Use these exact queries during hackathon presentations and local UI testing to demonstrate the full verification progression:
 
-| Query Scenario | Exact Search Input | Expected Target Type | Expected Verdict | Expected Risk Level | Expected Score | Seed Reports | Notes |
+| Scenario | Exact Search Input | Type | Verdict / Status | Confidence | Score | Reports | Notes |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Known Scam Phone** | `+91 98765 43210` (or `98765 43210`) | `phone` | `KNOWN_SCAM` | `high` | 95 / 100 | 127 reports | Digital arrest, KYC fraud, and loan scams across 16 areas |
-| **Suspicious Phone** | `+91 91234 56789` (or `91234 56789`) | `phone` | `SUSPICIOUS` | `suspicious` | 59 / 100 | 2 reports | 2 accepted reports in Bengaluru (UPI fraud / customer care) |
-| **Phishing URL** | `sbi-kyc-update.in/login` | `url` | `KNOWN_SCAM` | `high` | 96 / 100 | 43 reports | Fake SBI netbanking login portal collecting credentials |
-| **Unreported UPI** | `kyc.update92@okaxis` | `upi` | `NO_REPORTS` | `safe` | 0 / 100 | 0 reports | New or unflagged UPI VPA; displays warning disclaimer |
-| **Verified Business**| `1800 123 4567` | `phone` | `VERIFIED_BUSINESS`| `safe` | 5 / 100 | 0 reports | Official banking toll-free consumer helpline |
+| **Known Scam Phone** | `+91 98765 43210` | `phone` | `KNOWN_SCAM` (`HIGH_RISK`) | `HIGH` | 95 / 100 | 127 | High volume across 16 areas (Digital arrest, KYC fraud, loan scams) |
+| **Suspicious Phone** | `+91 91234 56789` | `phone` | `SUSPICIOUS` | `MEDIUM` | 59 / 100 | 2 | 2 independent community reports in Bengaluru |
+| **Under Review UPI** | `fraud.merchant@okaxis` | `upi` | `UNDER_REVIEW` | `LOW` | 25 / 100 | 1 | 1 initial report; NOT confirmed fraud |
+| **Unreported UPI** | `kyc.update92@okaxis` | `upi` | `NO_REPORTS` | `NONE` | 0 / 100 | 0 | Unflagged identifier; displays safety disclaimer |
+| **Verified Business**| `1800 123 4567` | `phone` | `VERIFIED_BUSINESS` | `HIGH` | 5 / 100 | 0 | Official banking toll-free consumer helpline |
+| **Phishing URL** | `sbi-kyc-update.in/login` | `url` | `KNOWN_SCAM` (`HIGH_RISK`) | `HIGH` | 96 / 100 | 43 | Fake SBI netbanking login portal collecting credentials |
 
 ---
 
-## 3. API Endpoints Specification
+## 4. API Endpoints Specification
 
 ### 1. Health Check
 Checks if the backend API service is running and healthy.
 
-- **URL:** `GET /health` (also available at `GET /api/health`)
+- **URL:** `GET /health` (or `GET /api/health`)
 - **Method:** `GET`
 - **Request Body:** None
-- **Query Parameters:** None
 
 #### Success Response (`200 OK`)
 ```json
@@ -95,13 +114,10 @@ Checks if the backend API service is running and healthy.
 }
 ```
 
-#### Frontend Notes
-Use this in the navbar or footer to display a live service indicator (🟢 **Service Online**).
-
 ---
 
-### 2. Identifier Lookup & Risk Assessment
-Checks a phone number, UPI ID, or URL and returns a transparent risk score (0–100), community report counts, category breakdown, and sanitized recent reports.
+### 2. Identifier Lookup & Community Risk Intelligence
+Checks a phone number, UPI ID, or URL and returns risk score (0–100), verification progression status, confidence level, independent report count, category breakdown, actionable safety guidance, and sanitized recent reports.
 
 - **URL:** `POST /api/lookup` (also supports `GET /api/lookup?query=...`)
 - **Method:** `POST`
@@ -116,9 +132,9 @@ Checks a phone number, UPI ID, or URL and returns a transparent risk score (0–
 ```
 *Field Notes:*
 - `query` (string, required): Phone number, UPI ID, or URL. (Also accepts `value`).
-- `type` (string, optional): `"phone"` | `"upi"` | `"url"`. If omitted, the backend auto-detects the type automatically.
+- `type` (string, optional): `"phone"` | `"upi"` | `"url"` (auto-detected if omitted).
 
-#### Success Response (`200 OK`)
+#### Success Response (`200 OK`) — Known Scam Example
 ```json
 {
   "success": true,
@@ -126,122 +142,152 @@ Checks a phone number, UPI ID, or URL and returns a transparent risk score (0–
   "target_type": "phone",
   "normalized_value": "+919876543210",
   "verdict": "KNOWN_SCAM",
+  "verification_status": "HIGH_RISK",
+  "confidence_level": "HIGH",
   "risk_level": "high",
   "risk_score": 95,
   "report_count": 127,
+  "independent_report_count": 127,
   "first_reported": "2026-08-01T04:30:00Z",
   "last_reported": "2026-10-31T09:45:00Z",
   "top_category": "digital_arrest",
   "distinct_areas_count": 16,
-  "message": "High risk. Reported by 127 user(s) as a potential scam. Most frequent category: digital arrest.",
+  "message": "High-risk based on 127 independent community reports and detected patterns. Primary reported category: digital arrest.",
+  "community_impact_message": "Community reports serve as early warning signals to help others check before they trust.",
+  "safety_guidance": [
+    "Police, CBI, ED, and customs officials NEVER conduct 'digital arrests' or demand bail money over video calls.",
+    "Disconnect the call immediately and do not transfer funds to 'verification' or 'safe' accounts.",
+    "Contact your local police station or dial the National Cyber Crime Helpline at 1930 immediately."
+  ],
   "recent_reports": [
     {
       "category": "digital_arrest",
       "description": "Pretended to be CBI/Police on video call demanding bail deposit.",
       "city": "Bengaluru",
       "reported_at": "2026-10-31T09:45:00Z"
-    },
-    {
-      "category": "fake_kyc",
-      "description": "Sent fake SMS claiming bank account suspended until KYC update.",
-      "city": "Bengaluru",
-      "reported_at": "2026-10-31T07:15:00Z"
     }
   ]
 }
 ```
 
-#### Verdict Values & UI Guidance
-- `KNOWN_SCAM` (Red badge 🔴): `risk_level: "high"`, Score >= 60 or Reports >= 3. Advise user: *Do NOT interact, transfer money, or click links.*
-- `SUSPICIOUS` (Amber badge 🟡): `risk_level: "suspicious"`, Score 20–59 or Reports 1–2. Advise user: *Proceed with caution. Do not share OTPs.*
-- `NO_REPORTS` (Slate badge ⚪): `risk_level: "safe"`, Score 0, Reports 0. Advise user: *No reports logged yet. Silence does not guarantee safety.*
-- `VERIFIED_BUSINESS` (Emerald badge 🟢): `risk_level: "safe"`, Score 5. Advise user: *Verified official entity / toll-free helpline.*
-
-#### Error Responses
-- **`400 Bad Request`** (Empty or invalid format):
+#### Success Response (`200 OK`) — Under Review Example (1 Report)
 ```json
 {
-  "detail": "Invalid Indian mobile number '12345'. Must be 10 digits starting with 6, 7, 8, or 9."
+  "success": true,
+  "query": "fraud.merchant@okaxis",
+  "target_type": "upi",
+  "normalized_value": "fraud.merchant@okaxis",
+  "verdict": "UNDER_REVIEW",
+  "verification_status": "UNDER_REVIEW",
+  "confidence_level": "LOW",
+  "risk_level": "low",
+  "risk_score": 25,
+  "report_count": 1,
+  "independent_report_count": 1,
+  "first_reported": "2026-10-30T10:00:00Z",
+  "last_reported": "2026-10-30T10:00:00Z",
+  "top_category": "fake_job",
+  "distinct_areas_count": 1,
+  "message": "This identifier has received an initial community report and is currently under review. One report does not confirm fraud; additional independent signals are required.",
+  "community_impact_message": "Community reports serve as early warning signals to help others check before they trust.",
+  "safety_guidance": [
+    "Do not pay registration, training, or deposit fees—legitimate employers never charge candidates.",
+    "Verify job offers through official company careers websites rather than Telegram or WhatsApp.",
+    "Never share sensitive documents (Aadhaar, PAN, bank passbooks) with unverified recruiters."
+  ],
+  "recent_reports": []
 }
 ```
 
 ---
 
-### 3. Submit Anonymous Scam Report
-Allows community users to report an incident with automatic phone/UPI/URL normalization, rate limiting, duplicate protection, and geo-clustering.
+### 3. Quick Report Submission (Fast & Simple)
+Submits a community safety signal with minimum effort. Only **Identifier** and **Scam Category** are required; narrative description and evidence references are completely optional.
 
-- **URL:** `POST /api/reports` (also available at `POST /reports`)
+- **URL:** `POST /api/reports` (or `POST /reports`)
 - **Method:** `POST`
 - **Headers:** `Content-Type: application/json`
 
-#### Request Body
+#### Minimal Quick Request Body (Required Fields Only)
+```json
+{
+  "target_value": "fraud.merchant@okaxis",
+  "scam_category": "upi_fraud"
+}
+```
+
+#### Full Request Body (With Optional Context)
 ```json
 {
   "target_value": "+919876543210",
   "target_type": "phone",
   "scam_category": "fake_job",
-  "description": "Offered ₹3,000/day for liking YouTube videos. Asked for ₹5,000 deposit via Telegram.",
+  "description": "Telegram job scam asking for deposit.",
+  "evidence_url": "https://example.com/screenshot.png",
+  "evidence_reference": "TXN_987654321",
   "city": "Bengaluru",
   "state": "Karnataka",
-  "pincode": "560102",
-  "area_name": "HSR Layout",
-  "latitude": 12.9121,
-  "longitude": 77.6446
+  "pincode": "560102"
 }
 ```
+
 *Field Notes:*
-- `target_value` (string, required): Raw input identifier (also accepts `query`).
-- `target_type` (string, optional): `"phone"` | `"upi"` | `"url"` (auto-detected if omitted).
+- `target_value` (string, required): Phone number, UPI ID, or URL.
 - `scam_category` (string, required): One of:
+  - `"upi_fraud"`
   - `"fake_job"`
+  - `"phishing"`
   - `"digital_arrest"`
   - `"fake_kyc"`
   - `"electricity_bill"`
-  - `"upi_fraud"`
   - `"loan_scam"`
-  - `"phishing"`
+  - `"investment_fraud"`
+  - `"otp_fraud"`
   - `"impersonation"`
+  - `"fake_customer_care"`
   - `"lottery"`
   - `"other"`
-- `description` (string, required): Incident details (**minimum 10 characters**).
-- `city`, `state` (string, optional): Geographic names for area grouping.
-- `pincode` (string, optional): 6-digit PIN code.
-- `latitude`, `longitude` (float, optional): Map coordinates.
+- `description` (string, **optional**): Brief notes (no minimum length required).
+- `evidence_url` (string, **optional**): Screenshot link or image URL.
+- `evidence_reference` (string, **optional**): Transaction ID or reference code.
+- `city`, `state`, `pincode`, `latitude`, `longitude` (optional).
 
 #### Success Response (`201 Created`)
 ```json
 {
   "status": "success",
-  "message": "Report submitted successfully",
-  "report_id": "rep_301",
-  "normalized_target": "+919876543210",
-  "target_type": "phone"
+  "message": "Report received as a community safety signal. One report alone does not confirm an identifier as a scam. ScamSentry combines independent reports and detected patterns to assess risk.",
+  "report_id": "rep_305",
+  "normalized_target": "fraud.merchant@okaxis",
+  "target_type": "upi",
+  "verification_status": "UNDER_REVIEW",
+  "confidence_level": "LOW",
+  "community_impact_message": "Your report contributes anonymously to ScamSentry's community scam intelligence. One victim's experience can become an early warning for another person.",
+  "safety_guidance": [
+    "Do not send additional money or approve pending payment/collect requests.",
+    "Contact your bank or UPI app support immediately to raise a dispute and freeze the transaction reference.",
+    "Report the unauthorized transaction on the National Cyber Crime portal (cybercrime.gov.in) or call 1930."
+  ]
 }
 ```
 
 #### Duplicate Report Response (`200 OK`)
-If the same client fingerprint submits the same identifier and scam category within 24 hours:
+If the same client fingerprint submits the same identifier within 24 hours:
 ```json
 {
   "status": "duplicate",
   "message": "Duplicate report detected. You have already submitted a report for this identifier within the last 24 hours.",
-  "report_id": "rep_302",
-  "normalized_target": "+919876543210",
-  "target_type": "phone"
-}
-```
-
-#### Error Responses
-- **`400 Bad Request`** (Missing or invalid input):
-```json
-{
-  "detail": "Report description must be at least 10 characters explaining what happened."
-}
-```
-- **`429 Too Many Requests`** (Rate limit exceeded: max 5 reports / hour):
-```json
-{
-  "detail": "Rate limit exceeded: maximum 5 reports per hour. Please try again later."
+  "report_id": "rep_306",
+  "normalized_target": "fraud.merchant@okaxis",
+  "target_type": "upi",
+  "verification_status": "UNDER_REVIEW",
+  "confidence_level": "LOW",
+  "community_impact_message": "Your report contributes anonymously to ScamSentry's community scam intelligence. One victim's experience can become an early warning for another person.",
+  "safety_guidance": [
+    "Do not send additional money or approve pending payment/collect requests.",
+    "Contact your bank or UPI app support immediately to raise a dispute and freeze the transaction reference.",
+    "Report the unauthorized transaction on the National Cyber Crime portal (cybercrime.gov.in) or call 1930."
+  ]
 }
 ```
 
@@ -250,22 +296,22 @@ If the same client fingerprint submits the same identifier and scam category wit
 ### 4. Scam Activity Map
 Retrieves aggregated incident counts grouped by area for interactive maps, heatmaps, and city tables.
 
-- **URL:** `GET /api/map` (also available at `GET /map`)
+- **URL:** `GET /api/map` (or `GET /map`)
 - **Method:** `GET`
 - **Query Parameters:**
-  - `days` (integer, optional, default: `7`, range: `1` to `90`): Timeframe in days.
-  - `city` (string, optional): Filter by city (e.g. `Bengaluru`, `Mumbai`, `Noida`).
-  - `state` (string, optional): Filter by state (e.g. `Karnataka`, `Maharashtra`).
-  - `category` (string, optional): Filter by scam type (e.g. `digital_arrest`, `electricity_bill`).
+  - `days` (integer, optional, default: `7`, range: `1` to `90`)
+  - `city` (string, optional)
+  - `state` (string, optional)
+  - `category` (string, optional)
 
 #### Success Response (`200 OK`)
 ```json
 {
   "success": true,
   "timeframe_days": 7,
-  "total_incidents": 178,
+  "total_incidents": 179,
   "summary": {
-    "total_reports": 178,
+    "total_reports": 179,
     "total_active_areas": 13,
     "highest_activity_area": "HSR Layout",
     "requested_days": 7
@@ -281,17 +327,6 @@ Retrieves aggregated incident counts grouped by area for interactive maps, heatm
       "report_count": 42,
       "dominant_category": "electricity_bill",
       "severity": "critical"
-    },
-    {
-      "area": "Koramangala",
-      "city": "Bengaluru",
-      "state": "Karnataka",
-      "pincode": "560034",
-      "latitude": 12.9352,
-      "longitude": 77.6245,
-      "report_count": 28,
-      "dominant_category": "upi_fraud",
-      "severity": "high"
     }
   ],
   "areas": [
@@ -311,7 +346,7 @@ Retrieves aggregated incident counts grouped by area for interactive maps, heatm
   "data": {
     "days": 7,
     "summary": {
-      "total_reports": 178,
+      "total_reports": 179,
       "total_active_areas": 13,
       "highest_activity_area": "HSR Layout",
       "requested_days": 7
@@ -321,26 +356,19 @@ Retrieves aggregated incident counts grouped by area for interactive maps, heatm
 }
 ```
 
-#### Area Severity Thresholds
-- `CRITICAL` (>= 35 reports in window): Immediate active fraud surge.
-- `HIGH` (20 – 34 reports in window): Frequent syndicate activity.
-- `MEDIUM` (5 – 19 reports in window): Moderate activity.
-- `LOW` (1 – 4 reports in window): Sporadic reports.
-- `NONE` (0 reports in window).
-
 ---
 
 ### 5. Anomaly & Surge Alerts Feed
 Retrieves high-priority surge alerts triggered when abnormal scam spikes or coordinated fraud patterns are detected.
 
-- **URL:** `GET /api/alerts` (also available at `GET /alerts`)
+- **URL:** `GET /api/alerts` (or `GET /alerts`)
 - **Method:** `GET`
 - **Query Parameters:**
-  - `days` (integer, optional, default: `7`, range: `1` to `90`): History window.
-  - `severity` (string, optional): `"critical"` | `"high"` | `"medium"` | `"low"`.
-  - `city` (string, optional): Filter by city (e.g. `Bengaluru`).
-  - `limit` (integer, optional, default: `20`, max: `100`).
-  - `detect` (boolean, optional, default: `false`): If `true`, runs the detection engine before returning.
+  - `days` (default: `7`)
+  - `severity` (`critical`, `high`, `medium`, `low`)
+  - `city` (string, optional)
+  - `limit` (default: `20`)
+  - `detect` (boolean, default: `false`)
 
 #### Success Response (`200 OK`)
 ```json
@@ -376,19 +404,13 @@ Retrieves high-priority surge alerts triggered when abnormal scam spikes or coor
 }
 ```
 
-#### Anomaly Types
-- `SPIKE`: Area report count significantly exceeds the 7-day rolling baseline (>= 2.0x surge).
-- `NEW_SCAM_TYPE`: New fraud category appearing in an area for the first time in 30 days.
-- `IDENTIFIER_SURGE`: Sudden multi-report surge targeting a specific phone number, UPI ID, or URL within 48 hours.
-
 ---
 
 ### 6. Trigger Anomaly Detection Scan
 Explicitly runs the anomaly detection pipeline to detect new spikes, emerging categories, and identifier surges across the database.
 
-- **URL:** `POST /api/alerts/detect` (also available at `POST /alerts/detect`)
+- **URL:** `POST /api/alerts/detect`
 - **Method:** `POST`
-- **Request Body:** None (or `{}`)
 
 #### Success Response (`200 OK`)
 ```json
@@ -408,17 +430,12 @@ Explicitly runs the anomaly detection pipeline to detect new spikes, emerging ca
 
 ---
 
-### 7. Demo Reset & Re-seeding Utility (For Rehearsals)
+### 7. Demo Reset & Re-seeding Utility
 Allows the frontend to reset and repopulate the database with the hackathon dataset at any time during practice or between demo runs.
 
 - **URL:** `POST /api/admin/reset`
 - **Method:** `POST`
-- **Request Body:**
-```json
-{
-  "seed_demo_data": true
-}
-```
+- **Request Body:** `{ "seed_demo_data": true }`
 
 #### Success Response (`200 OK`)
 ```json
@@ -436,25 +453,28 @@ Allows the frontend to reset and repopulate the database with the hackathon data
 
 ---
 
-## 4. Privacy & Anti-Abuse Protections Summary
+## 5. Immediate Safety Guidance by Category
 
-1. **Zero Personally Identifiable Information (PII) Stored:**  
-   The backend does not store reporter IP addresses or client identifiers in plain text.
-2. **Salted Reporter Fingerprinting:**  
-   Reports are salt-hashed using SHA-256 (`SHA256(ip + user_agent + daily_salt)`).
-3. **No Sensitive Reporter Data in Responses:**  
-   API responses never expose reporter IPs, hashes, or identities.
-4. **Identifier Masking in Alerts:**  
-   Public indicator lists mask digits and UPI handles (e.g., `+91987*****10`, `b***y@fakeupi`).
-5. **Rate Limiting:**  
-   Anonymous reporters are limited to 5 submissions per rolling 1-hour window. Subsequent attempts return HTTP `429 Too Many Requests`.
-6. **Duplicate Protection:**  
-   Repeated reports from the same client for the same identifier within 24 hours return `status: "duplicate"` (HTTP `200`) without polluting community risk scores.
+The backend automatically attaches actionable safety steps (`safety_guidance`) to both report submissions and lookup results based on the primary category:
+
+| Category | Top Safety Recommendation |
+| :--- | :--- |
+| **`upi_fraud`** | Freeze transaction reference with bank/UPI app immediately; dispute via cybercrime.gov.in / 1930. |
+| **`fake_job`** | Never pay registration or deposit fees; verify through official corporate careers pages. |
+| **`phishing`** | Change passwords immediately on accounts entered; turn on 2FA via authenticator app. |
+| **`digital_arrest`** | Law enforcement NEVER conducts arrests or demands bail on video calls; disconnect and call 1930. |
+| **`fake_kyc`** | Utilities/banks never demand screen-sharing apps (AnyDesk, TeamViewer) to update KYC. |
+| **`electricity_bill`**| Utility boards never cut power within 30 minutes via SMS or personal WhatsApp messages. |
+| **`loan_scam`** | Never pay upfront 'insurance' fees; borrow only from RBI-registered NBFCs. |
+| **`investment_fraud`**| Guaranteed high returns are a hallmark of fraud; verify advisors on sebi.gov.in. |
+| **`otp_fraud`** | Never share OTPs or PINs; bank executives will NEVER ask for password reset codes. |
 
 ---
 
-## 5. Support & Live Communication
+## 6. Privacy & Anti-Abuse Protections Summary
 
-- **Backend Contact:** Avaish (Backend Lead)
-- **Local Swagger UI:** `http://localhost:8000/docs`
-- **ReDoc Interactive Spec:** `http://localhost:8000/redoc`
+1. **Zero Personally Identifiable Information (PII) Stored:** No plain-text IPs or device IDs.
+2. **Salted Reporter Fingerprints:** Reports use salted SHA-256 (`SHA256(ip + user_agent + daily_salt)`).
+3. **Independent Reporter Weighting:** Multiple reports from the same client fingerprint count as only 1 independent reporter signal, preventing artificial rating inflation.
+4. **Rate Limiting:** Anonymous reporters are limited to 5 submissions per rolling 1-hour window (subsequent attempts return `429 Too Many Requests`).
+5. **Duplicate Protection:** Re-submitting the same identifier within 24 hours returns `status: "duplicate"` (HTTP `200`) without polluting community risk scores.

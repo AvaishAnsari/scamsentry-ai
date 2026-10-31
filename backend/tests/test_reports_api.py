@@ -151,24 +151,33 @@ class TestReportsAPI(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 400)
 
     # -------------------------------------------------------------------------
-    # 6 & 7. Empty and Too-Short Description Rejection
+    # 6. Quick Report Flow (Optional Description & Evidence Reference)
     # -------------------------------------------------------------------------
-    def test_empty_and_short_description_rejection(self):
-        # Too short (< 10 chars)
-        with self.assertRaises(ValueError):
-            ReportCreateRequest(
-                target_value="+919876543210",
-                scam_category="fake_job",
-                description="short",
-            )
+    def test_quick_report_with_optional_description(self):
+        # Submission without description (Quick Report)
+        req_no_desc = ReportCreateRequest(
+            target_value="+919876543210",
+            scam_category="fake_job",
+        )
+        dummy_req = DummyRequest(host="10.0.0.8")
+        res = create_report(req_no_desc, dummy_req, Response(), self.db)
+        self.assertEqual(res.status, "success")
+        self.assertEqual(res.verification_status, "UNDER_REVIEW")
+        self.assertEqual(res.confidence_level, "LOW")
+        self.assertTrue(len(res.safety_guidance) > 0)
+        self.assertIn("community", res.community_impact_message.lower())
 
-        # Empty
-        with self.assertRaises(ValueError):
-            ReportCreateRequest(
-                target_value="+919876543210",
-                scam_category="fake_job",
-                description="   ",
-            )
+        # Submission with short description and evidence link
+        req_short = ReportCreateRequest(
+            target_value="fraud@paytm",
+            scam_category="upi_fraud",
+            description="scam",
+            evidence_url="https://evidence.example.com/screenshot.png",
+        )
+        dummy_req2 = DummyRequest(host="10.0.0.9")
+        res2 = create_report(req_short, dummy_req2, Response(), self.db)
+        self.assertEqual(res2.status, "success")
+        self.assertEqual(res2.target_type, "upi")
 
     # -------------------------------------------------------------------------
     # 8 & 9. Duplicate Submission Detection (Same Fingerprint + Target + Category)
@@ -285,12 +294,14 @@ class TestReportsAPI(unittest.TestCase):
         res1 = create_report(req1, client1, Response(), self.db)
         self.assertEqual(res1.status, "success")
 
-        # 3. Lookup again -> SUSPICIOUS
+        # 3. Lookup again -> UNDER_REVIEW (1 community report is not confirmed scam)
         lookup1 = execute_lookup(target, None, self.db)
         self.assertEqual(lookup1.report_count, 1)
-        self.assertEqual(lookup1.verdict, "SUSPICIOUS")
-        self.assertEqual(lookup1.risk_level, "suspicious")
-        self.assertTrue(20 <= lookup1.risk_score <= 59)
+        self.assertEqual(lookup1.independent_report_count, 1)
+        self.assertEqual(lookup1.verdict, "UNDER_REVIEW")
+        self.assertEqual(lookup1.verification_status, "UNDER_REVIEW")
+        self.assertEqual(lookup1.confidence_level, "LOW")
+        self.assertEqual(lookup1.risk_score, 25)
 
         # 4. Same client submits duplicate -> Marked duplicate, lookup unchanged
         res_dup = create_report(req1, client1, Response(), self.db)
@@ -324,10 +335,16 @@ class TestReportsAPI(unittest.TestCase):
         )
         create_report(req3, client3, Response(), self.db)
 
-        # 6. Lookup again -> KNOWN_SCAM with >= 3 accepted reports
+        # 6. Lookup again -> KNOWN_SCAM with >= 3 accepted reports from independent reporters
         final_lookup = execute_lookup(target, None, self.db)
         self.assertEqual(final_lookup.report_count, 3)
+        self.assertEqual(final_lookup.independent_report_count, 3)
         self.assertEqual(final_lookup.verdict, "KNOWN_SCAM")
+        self.assertEqual(final_lookup.verification_status, "HIGH_RISK")
+        self.assertEqual(final_lookup.confidence_level, "HIGH")
+        self.assertEqual(final_lookup.risk_level, "high")
+        self.assertTrue(final_lookup.risk_score >= 60)
+        self.assertEqual(final_lookup.distinct_areas_count, 3)
         self.assertEqual(final_lookup.risk_level, "high")
         self.assertTrue(final_lookup.risk_score >= 60)
         self.assertEqual(final_lookup.distinct_areas_count, 3)

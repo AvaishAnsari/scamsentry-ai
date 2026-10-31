@@ -41,14 +41,14 @@ export const AreaPanel: React.FC<AreaPanelProps> = ({ hotspot, timeframeDays }) 
 
         <span
           className={`px-2.5 py-1 text-xs font-bold rounded-full uppercase tracking-wider shrink-0 ${
-            hotspot.severity === 'high'
+            hotspot.severity === 'high' || hotspot.severity === 'critical'
               ? 'bg-risk-red-tint text-risk-red border border-risk-red/20'
               : hotspot.severity === 'medium'
               ? 'bg-risk-amber-tint text-risk-amber border border-risk-amber/20'
               : 'bg-risk-green-tint text-risk-green border border-risk-green/20'
           }`}
         >
-          {hotspot.severity === 'high' ? 'High activity' : `${hotspot.severity} activity`}
+          {hotspot.severity === 'high' || hotspot.severity === 'critical' ? 'High activity' : `${hotspot.severity} activity`}
         </span>
       </div>
 
@@ -60,7 +60,7 @@ export const AreaPanel: React.FC<AreaPanelProps> = ({ hotspot, timeframeDays }) 
         </div>
         <div className="bg-surface rounded-btn p-3 border border-line">
           <span className="block text-3xl font-bold text-risk-red">
-            {hotspot.last_24h_count}
+            {hotspot.last_24h_count ?? 0}
           </span>
           <span className="text-xs text-ink-muted">In the last 24 hours</span>
         </div>

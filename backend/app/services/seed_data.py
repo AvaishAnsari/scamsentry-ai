@@ -197,6 +197,21 @@ def seed_database(db: Session, reset: bool = True) -> Dict[str, int]:
             )
         )
 
+    # D2. Under Review UPI: fraud.merchant@okaxis (1 single community report -> UNDER_REVIEW)
+    under_review_ident = ident_map["fraud.merchant@okaxis"]
+    reports_to_add.append(
+        ScamReport(
+            identifier_id=under_review_ident.id,
+            area_id=area_map["Koramangala"].id,
+            scam_type="fake_job",
+            description="Initial report: Offered high-paying data entry job requiring initial deposit.",
+            status="accepted",
+            trust_score=60,
+            reporter_fingerprint_hash=hashlib.sha256("single_reporter_under_review".encode()).hexdigest(),
+            created_at=now - timedelta(days=1),
+        )
+    )
+
     # E. Area distribution matching UI/UX Map mockups for last 7 days
     # Target 7-day counts:
     # HSR Layout: 42, Koramangala: 28, Marathahalli: 21, Whitefield: 18,

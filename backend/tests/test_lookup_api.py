@@ -60,9 +60,9 @@ class TestLookupAPI(unittest.TestCase):
         self.assertIn("No community reports", res.message)
 
     # -------------------------------------------------------------------------
-    # 2. Single Accepted Report -> Low/Moderate Risk (SUSPICIOUS)
+    # 2. Single Accepted Report -> UNDER_REVIEW (Not Confirmed Scam)
     # -------------------------------------------------------------------------
-    def test_single_accepted_report_returns_suspicious(self):
+    def test_single_accepted_report_returns_under_review(self):
         area = Area(name="Indiranagar", city="Bengaluru", state="Karnataka")
         self.db.add(area)
         self.db.commit()
@@ -82,19 +82,99 @@ class TestLookupAPI(unittest.TestCase):
             description="Telegram task scam",
             status="accepted",
             trust_score=50,
+            reporter_fingerprint_hash="fp_reporter_1",
         )
         self.db.add(report)
         self.db.commit()
 
         res = execute_lookup("9876543210", None, self.db)
         self.assertTrue(res.success)
-        self.assertEqual(res.verdict, "SUSPICIOUS")
-        self.assertEqual(res.risk_level, "suspicious")
+        # Mentor requirement: 1 report MUST NOT produce KNOWN_SCAM or SUSPICIOUS
+        self.assertEqual(res.verdict, "UNDER_REVIEW")
+        self.assertEqual(res.verification_status, "UNDER_REVIEW")
+        self.assertEqual(res.confidence_level, "LOW")
+        self.assertEqual(res.risk_level, "low")
         self.assertEqual(res.report_count, 1)
-        self.assertTrue(20 <= res.risk_score <= 59)
+        self.assertEqual(res.independent_report_count, 1)
+        self.assertEqual(res.risk_score, 25)
         self.assertEqual(res.top_category, "fake_job")
         self.assertEqual(len(res.recent_reports), 1)
         self.assertEqual(res.recent_reports[0].city, "Bengaluru")
+        self.assertIn("under review", res.message.lower())
+        self.assertTrue(len(res.safety_guidance) > 0)
+
+    # -------------------------------------------------------------------------
+    # 2b. Multiple Independent Reports -> Increases to SUSPICIOUS
+    # -------------------------------------------------------------------------
+    def test_multiple_independent_reports_returns_suspicious(self):
+        area = Area(name="Koramangala", city="Bengaluru", state="Karnataka")
+        self.db.add(area)
+        self.db.commit()
+
+        ident = Identifier(
+            identifier_type="phone",
+            raw_value="+91 9123456789",
+            normalized_value="+919123456789",
+        )
+        self.db.add(ident)
+        self.db.commit()
+
+        # 2 reports from 2 different fingerprints
+        self.db.add(ScamReport(
+            identifier_id=ident.id,
+            area_id=area.id,
+            scam_type="upi_fraud",
+            status="accepted",
+            trust_score=60,
+            reporter_fingerprint_hash="fp_user_alpha",
+        ))
+        self.db.add(ScamReport(
+            identifier_id=ident.id,
+            area_id=area.id,
+            scam_type="upi_fraud",
+            status="accepted",
+            trust_score=60,
+            reporter_fingerprint_hash="fp_user_beta",
+        ))
+        self.db.commit()
+
+        res = execute_lookup("9123456789", None, self.db)
+        self.assertTrue(res.success)
+        self.assertEqual(res.verdict, "SUSPICIOUS")
+        self.assertEqual(res.verification_status, "SUSPICIOUS")
+        self.assertEqual(res.confidence_level, "MEDIUM")
+        self.assertEqual(res.report_count, 2)
+        self.assertEqual(res.independent_report_count, 2)
+        self.assertTrue(res.risk_score >= 25)
+
+    # -------------------------------------------------------------------------
+    # 2c. Repeated Reports from Same Person Do Not Increase Confidence
+    # -------------------------------------------------------------------------
+    def test_repeated_reports_same_person_stay_under_review(self):
+        ident = Identifier(
+            identifier_type="phone",
+            raw_value="+91 9555544444",
+            normalized_value="+919555544444",
+        )
+        self.db.add(ident)
+        self.db.commit()
+
+        # 3 reports from the EXACT same fingerprint
+        for i in range(3):
+            self.db.add(ScamReport(
+                identifier_id=ident.id,
+                scam_type="fake_job",
+                status="accepted",
+                trust_score=50,
+                reporter_fingerprint_hash="same_single_user_fp",
+            ))
+        self.db.commit()
+
+        res = execute_lookup("9555544444", None, self.db)
+        self.assertEqual(res.report_count, 3)
+        self.assertEqual(res.independent_report_count, 1)  # Only 1 unique reporter
+        self.assertEqual(res.verdict, "UNDER_REVIEW")
+        self.assertEqual(res.confidence_level, "LOW")
 
     # -------------------------------------------------------------------------
     # 3. Multiple Accepted Reports -> High Risk (KNOWN_SCAM)
@@ -113,8 +193,8 @@ class TestLookupAPI(unittest.TestCase):
         self.db.add(ident)
         self.db.commit()
 
-        # Add 4 accepted reports
-        for i in range(4):
+        # Add 5 accepted reports from distinct reporters
+        for i in range(5):
             rep = ScamReport(
                 identifier_id=ident.id,
                 area_id=area1.id if i % 2 == 0 else area2.id,
@@ -122,6 +202,7 @@ class TestLookupAPI(unittest.TestCase):
                 description=f"Demanded payment immediately {i}",
                 status="accepted",
                 trust_score=80,
+                reporter_fingerprint_hash=f"fp_distinct_user_{i}",
             )
             self.db.add(rep)
         self.db.commit()
@@ -129,8 +210,11 @@ class TestLookupAPI(unittest.TestCase):
         res = execute_lookup("fraudster@okaxis", None, self.db)
         self.assertTrue(res.success)
         self.assertEqual(res.verdict, "KNOWN_SCAM")
+        self.assertEqual(res.verification_status, "HIGH_RISK")
+        self.assertEqual(res.confidence_level, "HIGH")
         self.assertEqual(res.risk_level, "high")
-        self.assertEqual(res.report_count, 4)
+        self.assertEqual(res.report_count, 5)
+        self.assertEqual(res.independent_report_count, 5)
         self.assertTrue(res.risk_score >= 60)
         self.assertEqual(res.top_category, "electricity_bill")
         self.assertEqual(res.distinct_areas_count, 2)
@@ -153,22 +237,25 @@ class TestLookupAPI(unittest.TestCase):
             scam_type="kyc_fraud",
             status="accepted",
             trust_score=50,
+            reporter_fingerprint_hash="fp_valid_reporter",
         )
         self.db.add(accepted_rep)
 
-        for _ in range(5):
+        for i in range(5):
             rejected_rep = ScamReport(
                 identifier_id=ident.id,
                 scam_type="kyc_fraud",
                 status="rejected",
                 trust_score=10,
+                reporter_fingerprint_hash=f"fp_bad_{i}",
             )
             self.db.add(rejected_rep)
         self.db.commit()
 
         res = execute_lookup("+919876543210", None, self.db)
         self.assertEqual(res.report_count, 1)
-        self.assertEqual(res.verdict, "SUSPICIOUS")
+        self.assertEqual(res.verdict, "UNDER_REVIEW")
+        self.assertEqual(res.verification_status, "UNDER_REVIEW")
 
     # -------------------------------------------------------------------------
     # 5. Duplicate and Rate-Limited Reports Must Not Affect Risk

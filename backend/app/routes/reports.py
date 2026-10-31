@@ -13,6 +13,7 @@ from app.services.report_service import (
     generate_source_ip_hash,
     get_or_create_area,
     get_or_create_identifier,
+    get_safety_guidance,
     is_duplicate_report,
     validate_and_normalize_category,
 )
@@ -34,30 +35,28 @@ def extract_client_ip(request: Request, header_val: Optional[str] = None) -> str
 
 
 class ReportCreateRequest(BaseModel):
-    """Payload for submitting an anonymous scam report."""
+    """Payload for submitting an anonymous scam report (Quick Report Flow)."""
 
     target_value: Optional[str] = Field(None, description="Phone, UPI ID, or URL being reported")
     query: Optional[str] = Field(None, description="Alias for target_value")
     value: Optional[str] = Field(None, description="Alias for target_value")
     target_type: Optional[str] = Field(None, description="Optional 'phone', 'upi', 'url'")
     scam_category: str = Field(..., description="Category of scam (e.g. fake_job, digital_arrest, upi_fraud)")
-    description: str = Field(..., description="Narrative describing the incident (minimum 10 characters)")
+    description: Optional[str] = Field(None, description="Optional brief narrative (optional for Quick Report)")
     city: Optional[str] = Field(None, description="City name")
     state: Optional[str] = Field(None, description="State name")
     pincode: Optional[str] = Field(None, description="6-digit postal code")
     area_name: Optional[str] = Field(None, description="Locality or neighborhood name")
     latitude: Optional[float] = Field(None, description="Approximate area centroid latitude")
     longitude: Optional[float] = Field(None, description="Approximate area centroid longitude")
+    evidence_url: Optional[str] = Field(None, description="Optional link or reference to evidence")
+    evidence_reference: Optional[str] = Field(None, description="Optional reference code or transaction note")
 
     @model_validator(mode="after")
     def validate_inputs(self):
         target = self.target_value or self.query or self.value
         if not target or not target.strip():
             raise ValueError("Target identifier ('target_value', 'query', or 'value') is required.")
-
-        desc = self.description.strip() if self.description else ""
-        if len(desc) < 10:
-            raise ValueError("Report description must be at least 10 characters explaining what happened.")
 
         return self
 
@@ -70,6 +69,13 @@ class ReportCreateResponse(BaseModel):
     report_id: str
     normalized_target: str
     target_type: str
+    verification_status: str = "UNDER_REVIEW"  # UNDER_REVIEW | SUSPICIOUS | HIGH_RISK
+    confidence_level: str = "LOW"  # LOW | MEDIUM | HIGH
+    community_impact_message: str = (
+        "Your report contributes anonymously to ScamSentry's community scam intelligence. "
+        "One victim's experience can become an early warning for another person."
+    )
+    safety_guidance: list = Field(default_factory=list)
 
 
 @router.post(
@@ -126,6 +132,21 @@ def create_report(
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
+    # Format clean description (supporting quick reporting without mandatory narrative)
+    raw_desc = (payload.description or "").strip()
+    desc_parts = [raw_desc] if raw_desc else ["Community-reported incident."]
+    if payload.evidence_url and payload.evidence_url.strip():
+        desc_parts.append(f"[Evidence: {payload.evidence_url.strip()}]")
+    if payload.evidence_reference and payload.evidence_reference.strip():
+        desc_parts.append(f"[Ref: {payload.evidence_reference.strip()}]")
+    final_description = " ".join(desc_parts)
+
+    guidance = get_safety_guidance(normalized_category)
+    impact_msg = (
+        "Your report contributes anonymously to ScamSentry's community scam intelligence. "
+        "One victim's experience can become an early warning for another person."
+    )
+
     # 5. Check duplicate submission (Same reporter fingerprint + identifier + category within 24h)
     if is_duplicate_report(
         db, identifier_record.id, fingerprint_hash, normalized_category, window_hours=24
@@ -135,7 +156,7 @@ def create_report(
             identifier_id=identifier_record.id,
             area_id=None,
             scam_type=normalized_category,
-            description=payload.description.strip(),
+            description=final_description,
             status="duplicate",
             trust_score=0,
             reporter_fingerprint_hash=fingerprint_hash,
@@ -152,6 +173,10 @@ def create_report(
             report_id=f"rep_{dup_report.id}",
             normalized_target=normalized.normalized_value,
             target_type=normalized.identifier_type,
+            verification_status="UNDER_REVIEW",
+            confidence_level="LOW",
+            community_impact_message=impact_msg,
+            safety_guidance=guidance,
         )
 
     # 6. Retrieve or create Area record if geographic metadata is provided
@@ -167,7 +192,7 @@ def create_report(
 
     # 7. Compute deterministic initial trust score (10–85)
     trust_score = calculate_initial_trust_score(
-        description=payload.description,
+        description=final_description,
         category=normalized_category,
         city=payload.city,
         pincode=payload.pincode,
@@ -179,7 +204,7 @@ def create_report(
         identifier_id=identifier_record.id,
         area_id=area_record.id if area_record else None,
         scam_type=normalized_category,
-        description=payload.description.strip(),
+        description=final_description,
         status="accepted",
         trust_score=trust_score,
         reporter_fingerprint_hash=fingerprint_hash,
@@ -189,10 +214,36 @@ def create_report(
     db.commit()
     db.refresh(scam_report)
 
+    # 9. Evaluate community verification status of identifier
+    accepted_count = (
+        db.query(ScamReport)
+        .filter(
+            ScamReport.identifier_id == identifier_record.id,
+            ScamReport.status == "accepted",
+        )
+        .count()
+    )
+    if accepted_count <= 1:
+        current_status = "UNDER_REVIEW"
+        conf_level = "LOW"
+    elif accepted_count < 5:
+        current_status = "SUSPICIOUS"
+        conf_level = "MEDIUM"
+    else:
+        current_status = "HIGH_RISK"
+        conf_level = "HIGH"
+
     return ReportCreateResponse(
         status="success",
-        message="Report submitted successfully",
+        message=(
+            "Report received as a community safety signal. One report alone does not confirm an "
+            "identifier as a scam. ScamSentry combines independent reports and detected patterns to assess risk."
+        ),
         report_id=f"rep_{scam_report.id}",
         normalized_target=normalized.normalized_value,
         target_type=normalized.identifier_type,
+        verification_status=current_status,
+        confidence_level=conf_level,
+        community_impact_message=impact_msg,
+        safety_guidance=guidance,
     )

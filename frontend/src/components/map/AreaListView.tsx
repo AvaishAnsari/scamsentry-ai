@@ -68,7 +68,7 @@ export const AreaListView: React.FC<AreaListViewProps> = ({
                   <td className="py-3.5 px-4">
                     <span
                       className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                        h.severity === 'high'
+                        h.severity === 'high' || h.severity === 'critical'
                           ? 'bg-risk-red-tint text-risk-red'
                           : h.severity === 'medium'
                           ? 'bg-risk-amber-tint text-risk-amber'
@@ -88,7 +88,7 @@ export const AreaListView: React.FC<AreaListViewProps> = ({
                     {h.report_count}
                   </td>
                   <td className="py-3.5 px-4 text-right font-mono font-bold text-risk-red">
-                    +{h.last_24h_count}
+                    +{h.last_24h_count ?? 0}
                   </td>
                   <td className="py-3.5 px-4 text-center">
                     <button

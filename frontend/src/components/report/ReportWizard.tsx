@@ -6,11 +6,13 @@ import {
   Link as LinkIcon,
   AlertCircle,
   Lock,
-  ArrowRight,
   ArrowLeft,
   MapPin,
   FileCheck,
-  ShieldCheck,
+  ShieldAlert,
+  Zap,
+  FileText,
+  UploadCloud,
 } from 'lucide-react';
 import { IdentifierType, ScamCategory, ScamReportInput } from '../../types';
 import { submitScamReport } from '../../services/api';
@@ -18,11 +20,11 @@ import { submitScamReport } from '../../services/api';
 const SCAM_CATEGORIES: { id: ScamCategory; label: string; description: string }[] = [
   { id: 'digital_arrest', label: 'Digital Arrest', description: 'Fake police/CBI video call threats' },
   { id: 'fake_kyc', label: 'Fake KYC / Bank', description: 'Urgent SIM block or bank account update' },
-  { id: 'upi_refund', label: 'UPI Refund Fraud', description: 'Ask to approve PIN to receive money' },
+  { id: 'upi_refund', label: 'UPI Fraud / Refund', description: 'Ask to approve PIN to receive money' },
   { id: 'loan_app', label: 'Loan App Threat', description: 'Blackmail, harassment, or instant loan debt' },
   { id: 'fake_job', label: 'Fake Job Offer', description: 'Paid Telegram tasks or YouTube rating scams' },
   { id: 'electricity_bill', label: 'Electricity Bill Urgency', description: 'Night disconnection threat SMS' },
-  { id: 'other', label: 'Something Else', description: 'Lottery, parcel fee, crypto investment' },
+  { id: 'other', label: 'Other Fraud', description: 'Lottery, parcel fee, crypto investment' },
 ];
 
 const PINCODE_MAP: Record<string, { city: string; state: string; area: string }> = {
@@ -51,8 +53,11 @@ export const ReportWizard: React.FC = () => {
   // Query parameter pre-fills
   const initialType = (searchParams.get('type') as IdentifierType) || 'phone';
   const initialVal = searchParams.get('val') || '';
+  const initialPin = searchParams.get('pincode') || '';
 
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  // Level 1 = Quick Community Warning (Short & Fast)
+  // Level 2 = Optional Evidence & Location Details
+  const [reportingLevel, setReportingLevel] = useState<1 | 2>(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -64,6 +69,7 @@ export const ReportWizard: React.FC = () => {
         const parsed = JSON.parse(saved);
         if (initialVal) parsed.target_value = initialVal;
         if (initialType) parsed.target_type = initialType;
+        if (initialPin) parsed.pincode = initialPin;
         return parsed;
       }
     } catch {
@@ -76,18 +82,37 @@ export const ReportWizard: React.FC = () => {
       description: '',
       city: 'Bengaluru',
       state: 'Karnataka',
-      pincode: '560102',
+      pincode: initialPin || '',
       channel: 'phone_call',
       occurred_on: 'today',
       lost_money: false,
       lost_amount: '',
+      evidence_url: '',
+      evidence_reference: '',
     };
   });
 
-  const [areaHint, setAreaHint] = useState<string>('HSR Layout, Bengaluru');
-  const [confirmedTruth, setConfirmedTruth] = useState(false);
+  const [areaHint, setAreaHint] = useState<string>('');
+  const [confirmedTruth, setConfirmedTruth] = useState(true);
 
-  // Save draft whenever formData changes
+  // Auto-detect identifier type if user pastes input
+  const detectType = (val: string): IdentifierType => {
+    const clean = val.trim();
+    if (clean.includes('@')) return 'upi';
+    if (clean.includes('.') && (clean.startsWith('http') || clean.includes('/'))) return 'url';
+    return 'phone';
+  };
+
+  const handleIdentifierChange = (val: string) => {
+    const updated: Partial<ScamReportInput> = { target_value: val };
+    if (!formData.target_value && val.length > 3) {
+      updated.target_type = detectType(val);
+    }
+    setFormData((prev) => ({ ...prev, ...updated }));
+    if (error) setError(null);
+  };
+
+  // Save draft
   useEffect(() => {
     localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(formData));
   }, [formData]);
@@ -111,20 +136,21 @@ export const ReportWizard: React.FC = () => {
     }
   }, [formData.pincode]);
 
-  // Step 1 Validation
-  const validateStep1 = (): boolean => {
-    if (!formData.target_value.trim()) {
-      setError('Please provide the phone number, UPI ID, or link.');
+  // Validate Level 1 (Short & Easy)
+  const validateQuickWarning = (): boolean => {
+    const cleanVal = formData.target_value.trim();
+    if (!cleanVal) {
+      setError('Please provide the phone number, UPI ID, or web link.');
       return false;
     }
     if (formData.target_type === 'phone') {
-      const digits = formData.target_value.replace(/\D/g, '');
+      const digits = cleanVal.replace(/\D/g, '');
       if (digits.length < 10) {
         setError('Please enter a valid 10-digit phone number.');
         return false;
       }
     } else if (formData.target_type === 'upi') {
-      if (!formData.target_value.includes('@')) {
+      if (!cleanVal.includes('@')) {
         setError('Please enter a valid UPI ID (e.g. name@bank).');
         return false;
       }
@@ -133,27 +159,12 @@ export const ReportWizard: React.FC = () => {
     return true;
   };
 
-  // Step 2 Validation
-  const validateStep2 = (): boolean => {
-    if (!formData.pincode || formData.pincode.trim().length !== 6) {
-      setError('Please provide a valid 6-digit Indian PIN code for regional mapping.');
-      return false;
-    }
-    setError(null);
-    return true;
-  };
-
-  const handleNext = () => {
-    if (step === 1) {
-      if (validateStep1()) setStep(2);
-    } else if (step === 2) {
-      if (validateStep2()) setStep(3);
-    }
-  };
-
+  // Submit report handler (works for either Level 1 or Level 2)
   const handleSubmit = async () => {
+    if (!validateQuickWarning()) return;
+
     if (!confirmedTruth) {
-      setError('Please check the confirmation box to proceed.');
+      setError('Please check the confirmation box to submit.');
       return;
     }
 
@@ -163,18 +174,44 @@ export const ReportWizard: React.FC = () => {
     try {
       const res = await submitScamReport({
         ...formData,
-        description: formData.description.trim() || `Suspicious ${formData.scam_category.replace('_', ' ')} incident reported.`,
+        description: formData.description?.trim() || undefined,
+        pincode: formData.pincode?.trim() || undefined,
+        city: formData.city?.trim() || undefined,
+        state: formData.state?.trim() || undefined,
       });
 
-      if (res.status === 'success') {
+      if (res.status === 'success' || res.status === 'duplicate') {
         localStorage.removeItem(DRAFT_STORAGE_KEY);
-        navigate(`/report/done?id=${encodeURIComponent(res.report_id || 'rep_success')}&type=${formData.target_type}&val=${encodeURIComponent(formData.target_value)}`);
+        // Pass response guidance & details to done page via sessionStorage
+        try {
+          sessionStorage.setItem(
+            'scamsentry_last_report_result',
+            JSON.stringify({
+              reportId: res.report_id,
+              targetVal: formData.target_value,
+              targetType: formData.target_type,
+              status: res.status,
+              verificationStatus: res.verification_status || 'UNDER_REVIEW',
+              confidenceLevel: res.confidence_level || 'LOW',
+              communityImpactMessage: res.community_impact_message,
+              safetyGuidance: res.safety_guidance || [],
+            })
+          );
+        } catch {
+          // ignore
+        }
+
+        navigate(
+          `/report/done?id=${encodeURIComponent(res.report_id || 'rep_success')}&type=${encodeURIComponent(
+            formData.target_type || 'phone'
+          )}&val=${encodeURIComponent(formData.target_value)}&status=${encodeURIComponent(res.status)}`
+        );
       } else {
         setError(res.message || 'Failed to submit report. Please try again.');
         setIsSubmitting(false);
       }
     } catch {
-      setError('Submission encountered an unexpected error. Please try again.');
+      setError('Submission encountered an unexpected network error. Please try again.');
       setIsSubmitting(false);
     }
   };
@@ -189,49 +226,63 @@ export const ReportWizard: React.FC = () => {
             100% Anonymous Crowdsourced Intelligence
           </p>
           <p className="text-emerald-800 mt-0.5">
-            We never ask for your name, phone number, email address, or IP. Your incident is grouped by region to warn other citizens.
+            We never collect your name, email, or device IP. Reports contribute strictly as community safety signals.
           </p>
         </div>
       </div>
 
-      {/* Stepper Header */}
-      <div className="bg-white border border-line rounded-card p-5 sm:p-6 mb-6 shadow-sm">
-        <div className="flex items-center justify-between mb-2">
-          <h1 className="text-xl sm:text-2xl font-bold text-ink">
-            Report a Scam Incident
-          </h1>
-          <span className="text-xs font-bold text-brand bg-brand-tint px-2.5 py-1 rounded-full">
-            Step {step} of 3
-          </span>
+      {/* Level Selection Tabs */}
+      <div className="bg-white border border-line rounded-card p-4 sm:p-6 mb-6 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+          <div>
+            <h1 className="text-xl sm:text-2xl font-bold text-ink">
+              Report a Scam Incident
+            </h1>
+            <p className="text-xs text-ink-muted mt-0.5">
+              Help protect fellow citizens with early community warning signals.
+            </p>
+          </div>
+
+          <div className="flex bg-surface p-1 rounded-btn border border-line text-xs font-semibold self-start sm:self-auto">
+            <button
+              type="button"
+              onClick={() => setReportingLevel(1)}
+              className={`px-3 py-1.5 rounded-btn flex items-center gap-1.5 transition-colors ${
+                reportingLevel === 1 ? 'bg-white text-brand shadow-sm font-bold' : 'text-ink-muted'
+              }`}
+            >
+              <Zap className="w-3.5 h-3.5 text-amber-500" />
+              <span>Level 1: Quick Warning</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (validateQuickWarning()) setReportingLevel(2);
+              }}
+              className={`px-3 py-1.5 rounded-btn flex items-center gap-1.5 transition-colors ${
+                reportingLevel === 2 ? 'bg-white text-brand shadow-sm font-bold' : 'text-ink-muted'
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5 text-brand" />
+              <span>Level 2: Add Evidence</span>
+            </button>
+          </div>
         </div>
 
-        {/* Visual Stepper */}
-        <div className="flex items-center gap-2 mt-4">
-          <div
-            className={`flex-1 h-2 rounded-full transition-colors ${
-              step >= 1 ? 'bg-brand' : 'bg-line'
-            }`}
-          />
-          <div
-            className={`flex-1 h-2 rounded-full transition-colors ${
-              step >= 2 ? 'bg-brand' : 'bg-line'
-            }`}
-          />
-          <div
-            className={`flex-1 h-2 rounded-full transition-colors ${
-              step === 3 ? 'bg-brand' : 'bg-line'
-            }`}
-          />
-        </div>
-
-        <div className="flex justify-between text-[11px] font-semibold text-ink-muted mt-2">
-          <span className={step >= 1 ? 'text-brand' : ''}>1. What happened</span>
-          <span className={step >= 2 ? 'text-brand' : ''}>2. Where & when</span>
-          <span className={step === 3 ? 'text-brand' : ''}>3. Review & submit</span>
+        {/* Legal Safeguard / Mentor Feedback Note */}
+        <div className="bg-amber-50 border border-amber-200 rounded-btn p-3 flex items-start gap-2.5 text-xs text-amber-950">
+          <ShieldAlert className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+          <div>
+            <span className="font-bold">Community Safeguard Notice: </span>
+            <span>
+              This creates a community warning. It does not automatically prove that the target is a confirmed scam.
+              ScamSentry requires independent corroborating reports to escalate risk.
+            </span>
+          </div>
         </div>
       </div>
 
-      {/* Error alert if any */}
+      {/* Error alert */}
       {error && (
         <div className="mb-6 p-4 rounded-btn bg-risk-red-tint border border-risk-red/30 text-risk-red text-xs font-medium flex items-center gap-2 animate-fadeIn">
           <AlertCircle className="w-4 h-4 shrink-0" />
@@ -239,12 +290,22 @@ export const ReportWizard: React.FC = () => {
         </div>
       )}
 
-      {/* Step 1: What happened */}
-      {step === 1 && (
+      {/* LEVEL 1: Quick Community Warning */}
+      {reportingLevel === 1 && (
         <div className="bg-white border border-line rounded-card p-5 sm:p-7 shadow-sm space-y-6 animate-fadeIn">
+          <div className="border-b border-line pb-3">
+            <span className="text-xs font-bold text-brand uppercase tracking-wider">
+              Level 1 — Quick Community Warning (Short & Easy)
+            </span>
+            <p className="text-xs text-ink-muted mt-1">
+              Provide just the suspicious contact and type of fraud to alert the community immediately.
+            </p>
+          </div>
+
+          {/* Identifier Type Selector */}
           <div>
             <label className="text-xs font-bold uppercase tracking-wider text-ink block mb-2">
-              What identifier are you reporting?
+              Identifier Type
             </label>
             <div className="grid grid-cols-3 gap-2">
               <button
@@ -252,7 +313,7 @@ export const ReportWizard: React.FC = () => {
                 onClick={() => setFormData({ ...formData, target_type: 'phone' })}
                 className={`py-2.5 px-3 rounded-btn border text-xs sm:text-sm font-semibold flex items-center justify-center gap-2 transition-all ${
                   formData.target_type === 'phone'
-                    ? 'border-brand bg-brand-tint text-brand'
+                    ? 'border-brand bg-brand-tint text-brand ring-1 ring-brand'
                     : 'border-line hover:border-gray-400 text-ink-muted'
                 }`}
               >
@@ -264,7 +325,7 @@ export const ReportWizard: React.FC = () => {
                 onClick={() => setFormData({ ...formData, target_type: 'upi' })}
                 className={`py-2.5 px-3 rounded-btn border text-xs sm:text-sm font-semibold flex items-center justify-center gap-2 transition-all ${
                   formData.target_type === 'upi'
-                    ? 'border-brand bg-brand-tint text-brand'
+                    ? 'border-brand bg-brand-tint text-brand ring-1 ring-brand'
                     : 'border-line hover:border-gray-400 text-ink-muted'
                 }`}
               >
@@ -276,7 +337,7 @@ export const ReportWizard: React.FC = () => {
                 onClick={() => setFormData({ ...formData, target_type: 'url' })}
                 className={`py-2.5 px-3 rounded-btn border text-xs sm:text-sm font-semibold flex items-center justify-center gap-2 transition-all ${
                   formData.target_type === 'url'
-                    ? 'border-brand bg-brand-tint text-brand'
+                    ? 'border-brand bg-brand-tint text-brand ring-1 ring-brand'
                     : 'border-line hover:border-gray-400 text-ink-muted'
                 }`}
               >
@@ -286,19 +347,20 @@ export const ReportWizard: React.FC = () => {
             </div>
           </div>
 
+          {/* Target Value Input */}
           <div>
             <label htmlFor="target-value-input" className="text-xs font-bold uppercase tracking-wider text-ink block mb-1.5">
               {formData.target_type === 'phone'
                 ? 'Suspicious Phone Number'
                 : formData.target_type === 'upi'
-                ? 'Fraudulent UPI ID / VPA'
+                ? 'Fraudulent UPI ID'
                 : 'Suspicious Website Link'}
             </label>
             <input
               id="target-value-input"
               type="text"
               value={formData.target_value}
-              onChange={(e) => setFormData({ ...formData, target_value: e.target.value })}
+              onChange={(e) => handleIdentifierChange(e.target.value)}
               placeholder={
                 formData.target_type === 'phone'
                   ? '+91 98765 43210'
@@ -309,13 +371,14 @@ export const ReportWizard: React.FC = () => {
               className="w-full h-12 px-4 rounded-btn border border-line text-sm font-mono font-medium focus:border-brand focus:ring-1 focus:ring-brand"
             />
             <p className="mt-1.5 text-[11px] text-ink-muted">
-              Enter the exact phone number, UPI handle, or link sent to you.
+              Enter the phone number, UPI handle, or link sent to you.
             </p>
           </div>
 
+          {/* Scam Category Selector */}
           <div>
             <label className="text-xs font-bold uppercase tracking-wider text-ink block mb-2">
-              What kind of scam was it?
+              Scam Category
             </label>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               {SCAM_CATEGORIES.map((cat) => (
@@ -340,25 +403,98 @@ export const ReportWizard: React.FC = () => {
             </div>
           </div>
 
-          <div className="pt-4 border-t border-line flex justify-end">
+          {/* Optional Short Description */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label htmlFor="quick-desc" className="text-xs font-bold uppercase tracking-wider text-ink">
+                Short Description
+              </label>
+              <span className="text-[11px] text-brand font-semibold">Optional</span>
+            </div>
+            <textarea
+              id="quick-desc"
+              rows={2}
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              placeholder="e.g. Sent fake electricity bill SMS demanding immediate bill payment..."
+              className="w-full p-3 rounded-btn border border-line text-xs sm:text-sm focus:border-brand focus:ring-1 focus:ring-brand"
+            />
+          </div>
+
+          {/* Truth Confirmation Checkbox */}
+          <label className="flex items-start gap-3 cursor-pointer select-none pt-2">
+            <input
+              type="checkbox"
+              checked={confirmedTruth}
+              onChange={(e) => setConfirmedTruth(e.target.checked)}
+              className="mt-0.5 w-4 h-4 rounded border-line text-brand focus:ring-brand"
+            />
+            <span className="text-xs text-ink leading-relaxed font-medium">
+              I confirm this report describes a genuine suspected fraud attempt to the best of my knowledge.
+            </span>
+          </label>
+
+          {/* Action Row: Quick Submit or Add Level 2 Details */}
+          <div className="pt-4 border-t border-line flex flex-col sm:flex-row items-center justify-between gap-3">
             <button
               type="button"
-              onClick={handleNext}
-              className="h-12 px-7 bg-brand hover:bg-brand-hover text-white font-semibold text-sm rounded-btn transition-colors flex items-center gap-2 shadow-sm"
+              onClick={() => {
+                if (validateQuickWarning()) setReportingLevel(2);
+              }}
+              className="w-full sm:w-auto h-11 px-5 border border-line text-ink hover:bg-surface font-semibold text-xs rounded-btn transition-colors flex items-center justify-center gap-1.5"
             >
-              <span>Next: Where and When</span>
-              <ArrowRight className="w-4 h-4" />
+              <UploadCloud className="w-4 h-4 text-brand" />
+              <span>Add Evidence / Location (Level 2) →</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={isSubmitting || !confirmedTruth}
+              className="w-full sm:w-auto h-12 px-7 bg-brand hover:bg-brand-hover text-white font-semibold text-sm rounded-btn transition-colors flex items-center justify-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isSubmitting ? (
+                <>
+                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <span>Logging warning...</span>
+                </>
+              ) : (
+                <>
+                  <FileCheck className="w-4 h-4" />
+                  <span>Submit Quick Community Warning</span>
+                </>
+              )}
             </button>
           </div>
         </div>
       )}
 
-      {/* Step 2: Where and When */}
-      {step === 2 && (
+      {/* LEVEL 2: Optional Evidence & Location Details */}
+      {reportingLevel === 2 && (
         <div className="bg-white border border-line rounded-card p-5 sm:p-7 shadow-sm space-y-6 animate-fadeIn">
+          <div className="border-b border-line pb-3 flex items-center justify-between">
+            <div>
+              <span className="text-xs font-bold text-brand uppercase tracking-wider">
+                Level 2 — Optional Evidence & Location Details
+              </span>
+              <p className="text-xs text-ink-muted mt-1">
+                Adding area PIN codes and transaction references helps map localized threat clusters.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setReportingLevel(1)}
+              className="text-xs font-semibold text-brand hover:underline flex items-center gap-1"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Back to Quick Report</span>
+            </button>
+          </div>
+
+          {/* Area PIN Code */}
           <div>
             <label htmlFor="pincode-input" className="text-xs font-bold uppercase tracking-wider text-ink block mb-1.5">
-              Where were you located? (6-digit PIN code)
+              Regional PIN Code (Optional)
             </label>
             <div className="relative">
               <input
@@ -378,36 +514,12 @@ export const ReportWizard: React.FC = () => {
                 <span>Detected Area: {areaHint}</span>
               </p>
             )}
-            <p className="mt-1 text-[11px] text-ink-muted">
-              Used strictly to plot regional cluster heatmaps. Exact streets or premises are never captured.
-            </p>
           </div>
 
+          {/* How did they reach you */}
           <div>
             <label className="text-xs font-bold uppercase tracking-wider text-ink block mb-2">
-              When did this fraud attempt occur?
-            </label>
-            <div className="grid grid-cols-3 gap-2">
-              {(['today', 'yesterday', 'earlier'] as const).map((time) => (
-                <button
-                  key={time}
-                  type="button"
-                  onClick={() => setFormData({ ...formData, occurred_on: time })}
-                  className={`py-2.5 px-3 rounded-btn border text-xs sm:text-sm font-semibold capitalize transition-all ${
-                    formData.occurred_on === time
-                      ? 'border-brand bg-brand-tint text-brand'
-                      : 'border-line hover:border-gray-400 text-ink-muted'
-                  }`}
-                >
-                  {time}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <label className="text-xs font-bold uppercase tracking-wider text-ink block mb-2">
-              How did they reach you?
+              Communication Channel
             </label>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {[
@@ -432,6 +544,7 @@ export const ReportWizard: React.FC = () => {
             </div>
           </div>
 
+          {/* Financial Loss */}
           <div>
             <label className="text-xs font-bold uppercase tracking-wider text-ink block mb-2">
               Did you lose money? (Optional)
@@ -474,160 +587,60 @@ export const ReportWizard: React.FC = () => {
             )}
           </div>
 
-          <div>
-            <label htmlFor="description-input" className="text-xs font-bold uppercase tracking-wider text-ink block mb-1.5">
-              Incident Details / Narrative (Optional)
-            </label>
-            <textarea
-              id="description-input"
-              rows={3}
-              value={formData.description}
-              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              placeholder="e.g. Claimed to be Mumbai police inspector, threatened arrest if I didn't verify bank balance on Skype video call..."
-              className="w-full p-3 rounded-btn border border-line text-xs sm:text-sm focus:border-brand focus:ring-1 focus:ring-brand"
-            />
-          </div>
-
-          <div className="pt-4 border-t border-line flex items-center justify-between">
-            <button
-              type="button"
-              onClick={() => setStep(1)}
-              className="h-12 px-5 text-ink font-semibold text-xs sm:text-sm rounded-btn border border-line hover:bg-surface transition-colors flex items-center gap-2"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              <span>Back</span>
-            </button>
-            <button
-              type="button"
-              onClick={handleNext}
-              className="h-12 px-7 bg-brand hover:bg-brand-hover text-white font-semibold text-sm rounded-btn transition-colors flex items-center gap-2 shadow-sm"
-            >
-              <span>Next: Review & Submit</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Step 3: Review & Submit */}
-      {step === 3 && (
-        <div className="bg-white border border-line rounded-card p-5 sm:p-7 shadow-sm space-y-6 animate-fadeIn">
-          <div className="border border-line rounded-card divide-y divide-line text-xs">
-            <div className="p-3.5 flex items-center justify-between">
-              <div>
-                <span className="text-ink-muted block text-[11px]">Reported Identifier</span>
-                <span className="font-mono font-bold text-sm text-ink">{formData.target_value}</span>
-                <span className="text-ink-muted text-[11px] block capitalize">Type: {formData.target_type}</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setStep(1)}
-                className="text-brand font-semibold hover:underline"
-              >
-                Edit
-              </button>
+          {/* Evidence Reference / URL */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label htmlFor="evidence-url" className="text-xs font-bold uppercase tracking-wider text-ink block mb-1">
+                Evidence Screenshot Link
+              </label>
+              <input
+                id="evidence-url"
+                type="text"
+                placeholder="https://imgur.com/... or cloud link"
+                value={formData.evidence_url || ''}
+                onChange={(e) => setFormData({ ...formData, evidence_url: e.target.value })}
+                className="w-full h-11 px-3.5 rounded-btn border border-line text-xs font-mono"
+              />
             </div>
-
-            <div className="p-3.5 flex items-center justify-between">
-              <div>
-                <span className="text-ink-muted block text-[11px]">Scam Category</span>
-                <span className="font-bold text-ink">
-                  {SCAM_CATEGORIES.find((c) => c.id === formData.scam_category)?.label || formData.scam_category}
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setStep(1)}
-                className="text-brand font-semibold hover:underline"
-              >
-                Edit
-              </button>
+            <div>
+              <label htmlFor="evidence-ref" className="text-xs font-bold uppercase tracking-wider text-ink block mb-1">
+                Transaction / Reference ID
+              </label>
+              <input
+                id="evidence-ref"
+                type="text"
+                placeholder="e.g. UPI Ref / SMS header"
+                value={formData.evidence_reference || ''}
+                onChange={(e) => setFormData({ ...formData, evidence_reference: e.target.value })}
+                className="w-full h-11 px-3.5 rounded-btn border border-line text-xs font-mono"
+              />
             </div>
-
-            <div className="p-3.5 flex items-center justify-between">
-              <div>
-                <span className="text-ink-muted block text-[11px]">Area / PIN Code</span>
-                <span className="font-bold text-ink">{formData.pincode} ({areaHint || `${formData.city}, ${formData.state}`})</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setStep(2)}
-                className="text-brand font-semibold hover:underline"
-              >
-                Edit
-              </button>
-            </div>
-
-            <div className="p-3.5 flex items-center justify-between">
-              <div>
-                <span className="text-ink-muted block text-[11px]">Timeline & Channel</span>
-                <span className="font-bold text-ink capitalize">
-                  {formData.occurred_on} via {formData.channel?.replace('_', ' ')}
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setStep(2)}
-                className="text-brand font-semibold hover:underline"
-              >
-                Edit
-              </button>
-            </div>
-
-            <div className="p-3.5 flex items-center justify-between">
-              <div>
-                <span className="text-ink-muted block text-[11px]">Financial Loss</span>
-                <span className="font-bold text-ink">
-                  {formData.lost_money ? `Yes (₹${formData.lost_amount || 'unspecified'})` : 'No money lost'}
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setStep(2)}
-                className="text-brand font-semibold hover:underline"
-              >
-                Edit
-              </button>
-            </div>
-          </div>
-
-          {/* Privacy Transparency Box */}
-          <div className="bg-surface border border-line rounded-card p-4 space-y-2 text-xs">
-            <div className="font-bold text-ink flex items-center gap-1.5">
-              <ShieldCheck className="w-4 h-4 text-emerald-600" />
-              <span>Privacy Guarantee</span>
-            </div>
-            <p className="text-ink-muted">
-              <strong>What we store:</strong> Identifier ({formData.target_value}), scam classification, 6-digit area PIN code, and timestamp.
-            </p>
-            <p className="text-ink-muted">
-              <strong>What we never store:</strong> Your name, phone number, email address, or device IP. Reports are processed with salted anti-abuse hashes.
-            </p>
           </div>
 
           {/* Confirmation Checkbox */}
-          <label className="flex items-start gap-3 cursor-pointer select-none">
+          <label className="flex items-start gap-3 cursor-pointer select-none pt-2">
             <input
               type="checkbox"
               checked={confirmedTruth}
               onChange={(e) => setConfirmedTruth(e.target.checked)}
-              className="mt-1 w-4 h-4 rounded border-line text-brand focus:ring-brand"
+              className="mt-0.5 w-4 h-4 rounded border-line text-brand focus:ring-brand"
             />
             <span className="text-xs text-ink leading-relaxed font-medium">
-              I confirm that this report describes a genuine suspected fraud attempt to the best of my knowledge, and is not submitted to harass or defame any legitimate person or business.
+              I confirm this report describes a genuine suspected fraud attempt to the best of my knowledge.
             </span>
           </label>
 
+          {/* Submit Actions */}
           <div className="pt-4 border-t border-line flex items-center justify-between">
             <button
               type="button"
-              onClick={() => setStep(2)}
-              disabled={isSubmitting}
+              onClick={() => setReportingLevel(1)}
               className="h-12 px-5 text-ink font-semibold text-xs sm:text-sm rounded-btn border border-line hover:bg-surface transition-colors flex items-center gap-2"
             >
               <ArrowLeft className="w-4 h-4" />
               <span>Back</span>
             </button>
+
             <button
               type="button"
               onClick={handleSubmit}
@@ -642,7 +655,7 @@ export const ReportWizard: React.FC = () => {
               ) : (
                 <>
                   <FileCheck className="w-4 h-4" />
-                  <span>Submit Anonymous Report</span>
+                  <span>Submit Complete Report</span>
                 </>
               )}
             </button>

@@ -9,6 +9,8 @@ import {
   CornerDownRight,
   ShieldCheck,
   PlusCircle,
+  Clock,
+  ShieldAlert,
 } from 'lucide-react';
 import { LookupResult } from '../../types';
 import { VerdictBadge } from './VerdictBadge';
@@ -28,7 +30,7 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result }) => {
   };
 
   const handleShare = () => {
-    const shareText = `⚠️ ScamSentry Alert: Be careful with ${result.query}! Community verdict: ${result.verdict}. Verified reports: ${result.report_count}. Check before you trust: https://scamsentry.in/check?q=${encodeURIComponent(result.query)}`;
+    const shareText = `⚠️ ScamSentry Alert: Check ${result.query}! Community verdict: ${result.verdict}. Reports: ${result.report_count}. Check before you trust: https://scamsentry.in/check?q=${encodeURIComponent(result.query)}`;
     
     if (navigator.share) {
       navigator.share({
@@ -45,6 +47,7 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result }) => {
 
   const isScam = result.verdict === 'KNOWN_SCAM';
   const isSuspicious = result.verdict === 'SUSPICIOUS';
+  const isUnderReview = result.verdict === 'UNDER_REVIEW';
   const isVerified = result.verdict === 'VERIFIED_BUSINESS';
   const isNoReports = result.verdict === 'NO_REPORTS';
 
@@ -52,6 +55,8 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result }) => {
     ? 'border-risk-red/30'
     : isSuspicious
     ? 'border-risk-amber/30'
+    : isUnderReview
+    ? 'border-amber-300'
     : isVerified
     ? 'border-risk-green/30'
     : 'border-line';
@@ -60,6 +65,8 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result }) => {
     ? 'bg-gradient-to-b from-risk-red-tint/30 to-white'
     : isSuspicious
     ? 'bg-gradient-to-b from-risk-amber-tint/30 to-white'
+    : isUnderReview
+    ? 'bg-gradient-to-b from-amber-50/50 to-white'
     : isVerified
     ? 'bg-gradient-to-b from-risk-green-tint/30 to-white'
     : 'bg-white';
@@ -86,6 +93,8 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result }) => {
                 ? 'bg-risk-red text-white'
                 : isSuspicious
                 ? 'bg-risk-amber text-white'
+                : isUnderReview
+                ? 'bg-amber-500 text-white'
                 : isVerified
                 ? 'bg-risk-green text-white'
                 : 'bg-gray-200 text-ink-muted'
@@ -95,8 +104,10 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result }) => {
               ? 'High risk'
               : isSuspicious
               ? 'Medium risk'
+              : isUnderReview
+              ? 'Low risk · Under review'
               : isVerified
-              ? 'Low risk'
+              ? 'Low risk · Official'
               : 'Not enough data'}
           </span>
         </div>
@@ -136,6 +147,8 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result }) => {
                 ? 'text-risk-red'
                 : isSuspicious
                 ? 'text-risk-amber'
+                : isUnderReview
+                ? 'text-amber-600'
                 : isVerified
                 ? 'text-risk-green'
                 : 'text-ink-muted'
@@ -157,8 +170,26 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result }) => {
         )}
         {isSuspicious && (
           <p className="text-amber-900 font-semibold">
-            {result.report_count} people reported unusual behavior for this identifier in the last 30 days. It is not fully verified yet, but caution is advised.
+            {result.report_count} people reported unusual behavior for this identifier in the last 30 days. It is under community review, but caution is advised.
           </p>
+        )}
+        {isUnderReview && (
+          <div className="bg-amber-50 border border-amber-200 rounded-card p-4 space-y-1.5 text-amber-950 text-xs">
+            <div className="flex items-center gap-2">
+              <Clock className="w-4 h-4 text-amber-700 shrink-0" />
+              <p className="font-bold text-sm text-amber-900">
+                Community Warning Registered ({result.report_count} Report)
+              </p>
+            </div>
+            <p className="leading-relaxed">
+              This creates a community warning. It does <strong>not</strong> automatically prove that the target is a confirmed scam. Additional independent corroborating reports are required to verify fraud patterns.
+            </p>
+            {result.top_category && (
+              <p className="text-amber-800 font-semibold pt-1">
+                Reported category: <span className="capitalize">{result.top_category.replace(/_/g, ' ')}</span>
+              </p>
+            )}
+          </div>
         )}
         {isVerified && (
           <div className="flex items-start gap-2 text-emerald-900">
@@ -188,26 +219,30 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result }) => {
         )}
       </div>
 
-      {/* Metrics Row (Reports, Areas, Recency, Redirects) */}
+      {/* Metrics Row (Reports, Areas, Recency, Status) */}
       {!isNoReports && !isVerified && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="bg-white border border-line rounded-btn p-3 text-center">
             <span className="block text-2xl font-bold text-ink">{result.report_count}</span>
-            <span className="text-xs text-ink-muted">Community reports</span>
+            <span className="text-xs text-ink-muted">Total reports</span>
           </div>
           <div className="bg-white border border-line rounded-btn p-3 text-center">
-            <span className="block text-2xl font-bold text-ink">{result.distinct_areas || 1}</span>
-            <span className="text-xs text-ink-muted">Distinct areas</span>
+            <span className="block text-2xl font-bold text-ink">{result.independent_report_count ?? result.report_count}</span>
+            <span className="text-xs text-ink-muted">Independent reporters</span>
           </div>
           <div className="bg-white border border-line rounded-btn p-3 text-center">
             <span className="block text-2xl font-bold text-ink">
-              {result.last_reported ? 'Recent' : 'Active'}
+              {result.distinct_areas || result.distinct_areas_count || 1}
             </span>
-            <span className="text-xs text-ink-muted">Recent activity</span>
+            <span className="text-xs text-ink-muted">Distinct areas</span>
           </div>
           <div className="bg-white border border-line rounded-btn p-3 text-center">
-            <span className="block text-2xl font-bold text-risk-red">
-              {result.verdict === 'KNOWN_SCAM' ? 'Flagged' : 'Watch'}
+            <span
+              className={`block text-2xl font-bold ${
+                isScam ? 'text-risk-red' : isUnderReview ? 'text-amber-600' : 'text-amber-500'
+              }`}
+            >
+              {isScam ? 'Flagged' : isUnderReview ? 'Review' : 'Watch'}
             </span>
             <span className="text-xs text-ink-muted">Status</span>
           </div>
@@ -267,7 +302,13 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result }) => {
           Recommended Safety Guidance
         </h4>
         <ul className="text-xs text-ink space-y-1.5 list-disc list-inside">
-          {isScam ? (
+          {result.safety_guidance && result.safety_guidance.length > 0 ? (
+            result.safety_guidance.map((tip, idx) => (
+              <li key={idx} className="leading-relaxed">
+                {tip}
+              </li>
+            ))
+          ) : isScam ? (
             <>
               <li>Do not pick up, or hang up immediately if on call.</li>
               <li>Never share OTP, ATM PIN, UPI PIN, or bank passwords.</li>
@@ -276,7 +317,7 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result }) => {
                 <strong>Lost money?</strong> Call <strong>1930</strong> immediately to initiate banking cyber freeze.
               </li>
             </>
-          ) : isSuspicious ? (
+          ) : isSuspicious || isUnderReview ? (
             <>
               <li>Exercise extreme caution. Do not make advance payments for unverified services.</li>
               <li>Receiving money via UPI <em>never</em> requires entering your PIN.</li>
@@ -296,6 +337,14 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result }) => {
           )}
         </ul>
       </div>
+
+      {/* Community Impact message */}
+      {result.community_impact_message && (
+        <div className="bg-emerald-50/70 border border-emerald-200 rounded-btn p-3 text-xs text-emerald-900 flex items-start gap-2">
+          <ShieldAlert className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
+          <span>{result.community_impact_message}</span>
+        </div>
+      )}
 
       {/* Primary Actions: Report & Share Warning */}
       <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
@@ -327,7 +376,7 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result }) => {
       </div>
 
       <div className="text-[11px] text-ink-muted text-center pt-2">
-        Based on community reports, heuristic indicators, and public threat feeds. Not a judicial finding.
+        Based on community signals, heuristic indicators, and public threat feeds. Not a judicial finding.
       </div>
     </div>
   );

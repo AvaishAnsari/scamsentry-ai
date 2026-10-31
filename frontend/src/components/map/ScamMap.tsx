@@ -22,7 +22,7 @@ export const ScamMap: React.FC<ScamMapProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedHotspot, setSelectedHotspot] = useState<MapHotspot | null>(null);
   const [viewMode, setViewMode] = useState<'map' | 'list'>('map');
-  const [activeCityTab, setActiveCityTab] = useState<'Bengaluru' | 'Mumbai' | 'Delhi-NCR'>('Bengaluru');
+  const [activeCityTab, setActiveCityTab] = useState<'All Cities' | 'Bengaluru' | 'Mumbai' | 'Delhi-NCR'>('All Cities');
 
   // Pre-select hotspot if provided
   useEffect(() => {
@@ -49,7 +49,7 @@ export const ScamMap: React.FC<ScamMapProps> = ({
   const cityFilteredHotspots = filteredHotspots.filter((h) => {
     if (activeCityTab === 'Bengaluru') return h.city === 'Bengaluru';
     if (activeCityTab === 'Mumbai') return h.city === 'Mumbai';
-    if (activeCityTab === 'Delhi-NCR') return h.city === 'Noida' || h.city === 'New Delhi';
+    if (activeCityTab === 'Delhi-NCR') return h.city === 'Noida' || h.city === 'New Delhi' || h.city === 'Delhi';
     return true;
   });
 
@@ -71,7 +71,7 @@ export const ScamMap: React.FC<ScamMapProps> = ({
 
         {/* City Filter Pills */}
         <div className="flex items-center gap-1.5 self-start md:self-auto overflow-x-auto w-full md:w-auto pb-1 md:pb-0">
-          {(['Bengaluru', 'Mumbai', 'Delhi-NCR'] as const).map((city) => (
+          {(['All Cities', 'Bengaluru', 'Mumbai', 'Delhi-NCR'] as const).map((city) => (
             <button
               key={city}
               type="button"
@@ -154,7 +154,7 @@ export const ScamMap: React.FC<ScamMapProps> = ({
           <span className="font-semibold text-ink text-[11px] uppercase tracking-wider">Severity:</span>
           <span className="flex items-center gap-1.5">
             <span className="w-3 h-3 rounded-full bg-risk-red inline-block" />
-            <span>High (20+ reports)</span>
+            <span>High / Critical (20+ reports)</span>
           </span>
           <span className="flex items-center gap-1.5">
             <span className="w-3 h-3 rounded-full bg-amber-500 inline-block" />
@@ -200,7 +200,7 @@ export const ScamMap: React.FC<ScamMapProps> = ({
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {cityFilteredHotspots.map((h) => {
                   const isSelected = selectedHotspot?.pincode === h.pincode;
-                  const isHigh = h.severity === 'high';
+                  const isHigh = h.severity === 'high' || h.severity === 'critical';
                   const isMedium = h.severity === 'medium';
 
                   return (
@@ -240,7 +240,7 @@ export const ScamMap: React.FC<ScamMapProps> = ({
                           <span className="text-[10px] font-normal text-ink-muted">reports</span>
                         </span>
                         <span className="text-[11px] font-mono font-bold text-risk-red">
-                          +{h.last_24h_count} 24h
+                          +{h.last_24h_count ?? 0} 24h
                         </span>
                       </div>
                     </button>
