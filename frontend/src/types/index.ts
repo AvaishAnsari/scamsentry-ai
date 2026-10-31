@@ -1,4 +1,4 @@
-export type IdentifierType = 'phone' | 'upi' | 'url';
+export type IdentifierType = 'phone' | 'upi' | 'url' | 'email';
 
 export type ScamCategory =
   | 'digital_arrest'
@@ -25,6 +25,13 @@ export type VerificationStatus = 'NO_REPORTS' | 'UNDER_REVIEW' | 'SUSPICIOUS' | 
 
 export type ConfidenceLevel = 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH';
 
+export interface RiskSignal {
+  type: string;
+  severity: 'critical' | 'high' | 'medium' | 'low' | string;
+  message: string;
+  confidence?: 'high' | 'medium' | 'low' | string;
+}
+
 export interface RecentReportSummary {
   category: ScamCategory | string;
   description?: string;
@@ -41,6 +48,10 @@ export interface LookupResult {
   confidence_level?: ConfidenceLevel | string;
   risk_level: RiskLevel;
   risk_score: number;
+  pattern_risk_score?: number;
+  pattern_summary?: string;
+  recommended_action?: string;
+  risk_signals?: RiskSignal[];
   report_count: number;
   independent_report_count?: number;
   distinct_areas?: number;

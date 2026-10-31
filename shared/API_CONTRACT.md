@@ -118,12 +118,32 @@ Checks whether an identifier (phone, UPI ID, or URL) has been reported and retur
 {
   "query": "+919876543210",
   "target_type": "phone",
+  "verdict": "KNOWN_SCAM",
   "risk_level": "high",
   "risk_score": 85,
+  "pattern_risk_score": 75,
+  "confidence_level": "HIGH",
+  "pattern_summary": "High community corroboration combined with multi-category report activity.",
+  "recommended_action": "DO_NOT_SHARE_MONEY",
   "report_count": 14,
+  "independent_report_count": 14,
   "first_reported": "2026-10-25T10:00:00Z",
   "last_reported": "2026-10-31T09:30:00Z",
   "top_category": "fake_job",
+  "risk_signals": [
+    {
+      "type": "HIGH_COMMUNITY_CORROBORATION",
+      "severity": "high",
+      "message": "High corroboration: Confirmed by 14 independent community reporters",
+      "confidence": "high"
+    },
+    {
+      "type": "CATEGORY_DIVERSITY",
+      "severity": "high",
+      "message": "Identifier reported across multiple distinct scam vectors",
+      "confidence": "high"
+    }
+  ],
   "recent_reports": [
     {
       "category": "fake_job",
@@ -135,7 +155,8 @@ Checks whether an identifier (phone, UPI ID, or URL) has been reported and retur
 }
 ```
 
-> **Risk Level Values:** `"safe"` (score 0–19), `"suspicious"` (score 20–59), `"high"` (score 60–100).
+> **Risk Level Values:** `"safe"` (score 0–19), `"suspicious"` (score 20–59), `"high"` (score 60–100).  
+> **Recommended Actions:** `"PROCEED_WITH_CAUTION"`, `"DO_NOT_SHARE_MONEY"`, `"VERIFY_THROUGH_OFFICIAL_CHANNEL"`, `"AVOID_CLICKING_LINK"`, `"REPORT_TO_1930_IF_MONEY_LOST"`.
 
 #### Error Responses
 - **Status Code:** `400 Bad Request`

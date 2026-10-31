@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
@@ -53,6 +53,10 @@ class LookupResponse(BaseModel):
     confidence_level: str = "NONE"  # NONE | LOW | MEDIUM | HIGH
     risk_level: str  # safe | low | suspicious | high
     risk_score: int  # 0 to 100
+    pattern_risk_score: int = 0
+    pattern_summary: Optional[str] = None
+    recommended_action: str = "VERIFY_THROUGH_OFFICIAL_CHANNEL"
+    risk_signals: List[Dict[str, Any]] = Field(default_factory=list)
     report_count: int
     independent_report_count: int = 0
     first_reported: Optional[str] = None
@@ -105,9 +109,21 @@ def execute_lookup(raw_input: str, expected_type: Optional[str], db: Session) ->
     # 3. If identifier is not in DB, return clean verdict (VERIFIED_BUSINESS or NO_REPORTS)
     if identifier_record is None:
         if is_verified:
-            assessment = calculate_risk([], is_verified_business=True, verified_business_name=biz_name)
+            assessment = calculate_risk(
+                [],
+                is_verified_business=True,
+                verified_business_name=biz_name,
+                raw_query=raw,
+                target_type=normalized.identifier_type,
+                normalized_val=normalized.normalized_value,
+            )
         else:
-            assessment = calculate_risk([])
+            assessment = calculate_risk(
+                [],
+                raw_query=raw,
+                target_type=normalized.identifier_type,
+                normalized_val=normalized.normalized_value,
+            )
         return LookupResponse(
             success=True,
             query=raw,
@@ -118,6 +134,10 @@ def execute_lookup(raw_input: str, expected_type: Optional[str], db: Session) ->
             confidence_level=assessment.confidence_level,
             risk_level=assessment.risk_level,
             risk_score=assessment.risk_score,
+            pattern_risk_score=assessment.pattern_risk_score,
+            pattern_summary=assessment.pattern_summary,
+            recommended_action=assessment.recommended_action,
+            risk_signals=assessment.risk_signals or [],
             report_count=0,
             independent_report_count=0,
             first_reported=None,
@@ -143,9 +163,21 @@ def execute_lookup(raw_input: str, expected_type: Optional[str], db: Session) ->
 
     # 5. Calculate deterministic risk score & verdict
     if is_verified and len(accepted_reports) == 0:
-        assessment = calculate_risk(accepted_reports, is_verified_business=True, verified_business_name=biz_name)
+        assessment = calculate_risk(
+            accepted_reports,
+            is_verified_business=True,
+            verified_business_name=biz_name,
+            raw_query=raw,
+            target_type=normalized.identifier_type,
+            normalized_val=normalized.normalized_value,
+        )
     else:
-        assessment = calculate_risk(accepted_reports)
+        assessment = calculate_risk(
+            accepted_reports,
+            raw_query=raw,
+            target_type=normalized.identifier_type,
+            normalized_val=normalized.normalized_value,
+        )
 
     # 6. Build sanitized recent reports preview
     recent_items: List[RecentReportItem] = []
@@ -169,6 +201,10 @@ def execute_lookup(raw_input: str, expected_type: Optional[str], db: Session) ->
         confidence_level=assessment.confidence_level,
         risk_level=assessment.risk_level,
         risk_score=assessment.risk_score,
+        pattern_risk_score=assessment.pattern_risk_score,
+        pattern_summary=assessment.pattern_summary,
+        recommended_action=assessment.recommended_action,
+        risk_signals=assessment.risk_signals or [],
         report_count=assessment.report_count,
         independent_report_count=assessment.independent_report_count,
         first_reported=assessment.first_reported.isoformat() if assessment.first_reported else None,

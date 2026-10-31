@@ -1,3 +1,4 @@
+import ipaddress
 import re
 from typing import Optional, Tuple
 from urllib.parse import urlsplit, urlunsplit
@@ -16,7 +17,7 @@ class IdentifierValidationError(ValueError):
 class NormalizedIdentifier(BaseModel):
     """Structured result returned upon successful identifier normalization."""
 
-    identifier_type: str = Field(..., description="Canonical type: 'phone', 'upi', or 'url'")
+    identifier_type: str = Field(..., description="Canonical type: 'phone', 'upi', 'url', or 'email'")
     raw_value: str = Field(..., description="Original raw user input")
     normalized_value: str = Field(..., description="Normalized canonical identifier")
 
@@ -28,6 +29,7 @@ RE_UPI_HANDLE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9.\-_]{1,63}$")
 RE_UPI_PSP = re.compile(r"^[a-zA-Z0-9.\-]{2,64}$")
 RE_DOMAIN_LABEL = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?$")
 RE_TLD = re.compile(r"^[a-zA-Z]{2,24}$")
+RE_EMAIL = re.compile(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$")
 
 
 def normalize_phone(value: str) -> str:
@@ -176,6 +178,47 @@ def normalize_upi(value: str) -> str:
     return f"{handle.lower()}@{psp.lower()}"
 
 
+def normalize_email(value: str) -> str:
+    """Validate and normalize an email address.
+
+    Returns:
+        Canonical string: 'local@domain.tld' in lowercase.
+
+    Raises:
+        IdentifierValidationError: If email address format is invalid.
+    """
+    if not value or not isinstance(value, str):
+        raise IdentifierValidationError("Email address cannot be empty.", identifier_type="email")
+
+    raw = value.strip()
+    if not raw:
+        raise IdentifierValidationError("Email address cannot be empty.", identifier_type="email")
+
+    if " " in raw:
+        raise IdentifierValidationError("Email address cannot contain spaces.", identifier_type="email")
+
+    if "@" not in raw:
+        raise IdentifierValidationError("Email address must contain an '@' symbol.", identifier_type="email")
+
+    parts = raw.split("@")
+    if len(parts) != 2:
+        raise IdentifierValidationError("Email address cannot contain multiple '@' symbols.", identifier_type="email")
+
+    local, domain = parts[0].strip(), parts[1].strip()
+    if not local:
+        raise IdentifierValidationError("Email address is missing username before '@'.", identifier_type="email")
+    if not domain:
+        raise IdentifierValidationError("Email address is missing domain after '@'.", identifier_type="email")
+
+    if "." not in domain or domain.endswith("."):
+        raise IdentifierValidationError("Email domain must contain a valid top-level domain.", identifier_type="email")
+
+    if not RE_EMAIL.match(raw):
+        raise IdentifierValidationError(f"Invalid email address format: '{raw}'", identifier_type="email")
+
+    return raw.lower()
+
+
 def normalize_url(value: str) -> str:
     """Validate and normalize web URLs without network requests.
 
@@ -249,27 +292,36 @@ def normalize_url(value: str) -> str:
 
     hostname = hostname.lower()
 
-    # Validate hostname structure
-    labels = hostname.split(".")
-    if len(labels) < 2 and hostname != "localhost":
-        raise IdentifierValidationError(
-            f"Invalid domain name '{hostname}'. Must contain at least a domain and top-level domain.",
-            identifier_type="url",
-        )
+    # Allow valid IPv4 addresses
+    is_ipv4 = False
+    try:
+        ipaddress.IPv4Address(hostname)
+        is_ipv4 = True
+    except ValueError:
+        is_ipv4 = False
 
-    for label in labels:
-        if not label:
-            raise IdentifierValidationError(f"Invalid empty domain label in '{hostname}'.", identifier_type="url")
-        if not RE_DOMAIN_LABEL.match(label):
+    if not is_ipv4:
+        # Validate hostname structure
+        labels = hostname.split(".")
+        if len(labels) < 2 and hostname != "localhost":
             raise IdentifierValidationError(
-                f"Invalid domain label '{label}' in hostname '{hostname}'.",
+                f"Invalid domain name '{hostname}'. Must contain at least a domain and top-level domain.",
                 identifier_type="url",
             )
 
-    # Check TLD
-    tld = labels[-1]
-    if not RE_TLD.match(tld):
-        raise IdentifierValidationError(f"Invalid top-level domain '.{tld}'.", identifier_type="url")
+        for label in labels:
+            if not label:
+                raise IdentifierValidationError(f"Invalid empty domain label in '{hostname}'.", identifier_type="url")
+            if not RE_DOMAIN_LABEL.match(label):
+                raise IdentifierValidationError(
+                    f"Invalid domain label '{label}' in hostname '{hostname}'.",
+                    identifier_type="url",
+                )
+
+        # Check TLD
+        tld = labels[-1]
+        if not RE_TLD.match(tld):
+            raise IdentifierValidationError(f"Invalid top-level domain '.{tld}'.", identifier_type="url")
 
     # Normalize path: strip redundant trailing slash
     path = parsed.path
@@ -309,9 +361,28 @@ def detect_identifier_type(value: str) -> str:
     if not raw:
         raise IdentifierValidationError("Identifier cannot be empty.")
 
-    # 1. UPI detection: contains '@' and no forward slashes
+    # 1. Email vs UPI detection: contains '@' and no forward slashes
     if "@" in raw and not raw.startswith(("http://", "https://")):
-        # Validate UPI format
+        parts = raw.split("@")
+        if len(parts) == 2:
+            domain_part = parts[1].strip().lower()
+            common_webmails = {
+                "gmail.com", "yahoo.com", "outlook.com", "hotmail.com",
+                "icloud.com", "protonmail.com", "zoho.com", "aol.com", "mail.com",
+            }
+            # If domain is a known webmail or has dot with a standard TLD and not a UPI bank provider
+            if domain_part in common_webmails or (
+                "." in domain_part
+                and not domain_part.endswith(".")
+                and re.search(r"\.[a-zA-Z]{2,10}$", domain_part)
+                and not any(domain_part == psp for psp in ["okaxis", "paytm", "upi", "ybl", "okhdfcbank", "oksbi"])
+            ):
+                try:
+                    normalize_email(raw)
+                    return "email"
+                except IdentifierValidationError:
+                    pass
+        # Fall back to UPI validation
         normalize_upi(raw)
         return "upi"
 
@@ -327,9 +398,17 @@ def detect_identifier_type(value: str) -> str:
         normalize_phone(raw)
         return "phone"
 
-    # 4. Domain-like URL check (e.g. example.com, test.in/login)
+    # 4. Domain-like URL or IP-based URL check (e.g. example.com, test.in/login, 192.168.1.1/login)
     if "." in raw and not re.search(r"\s", raw):
         first_segment = raw.split("/")[0].split("?")[0]
+        # Check if first segment is IPv4
+        try:
+            ipaddress.IPv4Address(first_segment.split(":")[0])
+            normalize_url(raw)
+            return "url"
+        except ValueError:
+            pass
+
         if "." in first_segment:
             candidate_labels = first_segment.split(".")
             if len(candidate_labels) >= 2 and RE_TLD.match(candidate_labels[-1]):
@@ -337,7 +416,7 @@ def detect_identifier_type(value: str) -> str:
                 return "url"
 
     raise IdentifierValidationError(
-        f"Unable to classify '{raw}'. Input must be a valid Indian phone number, UPI ID, or web URL."
+        f"Unable to classify '{raw}'. Input must be a valid Indian phone number, UPI ID, web URL, or email address."
     )
 
 
@@ -363,7 +442,7 @@ def normalize_identifier(value: str, expected_type: Optional[str] = None) -> Nor
 
     Args:
         value: Raw identifier string.
-        expected_type: Optional explicit type ('phone', 'upi', 'url'). If None, auto-detected.
+        expected_type: Optional explicit type ('phone', 'upi', 'url', 'email'). If None, auto-detected.
 
     Returns:
         NormalizedIdentifier(identifier_type=..., raw_value=..., normalized_value=...)
@@ -401,9 +480,16 @@ def normalize_identifier(value: str, expected_type: Optional[str] = None) -> Nor
                 raw_value=raw,
                 normalized_value=normalized,
             )
+        elif expected_type_lower == "email":
+            normalized = normalize_email(raw)
+            return NormalizedIdentifier(
+                identifier_type="email",
+                raw_value=raw,
+                normalized_value=normalized,
+            )
         else:
             raise IdentifierValidationError(
-                f"Unsupported expected identifier type: '{expected_type}'. Must be 'phone', 'upi', or 'url'."
+                f"Unsupported expected identifier type: '{expected_type}'. Must be 'phone', 'upi', 'url', or 'email'."
             )
 
     # Auto-detect type
@@ -415,6 +501,8 @@ def normalize_identifier(value: str, expected_type: Optional[str] = None) -> Nor
         normalized = normalize_upi(raw)
     elif detected_type == "url":
         normalized = normalize_url(raw)
+    elif detected_type == "email":
+        normalized = normalize_email(raw)
     else:
         raise IdentifierValidationError(f"Unknown detected type '{detected_type}'.")
 

@@ -1,19 +1,22 @@
 """Risk assessment and verdict calculation engine for ScamSentry AI.
 
-This service uses a deterministic, rule-based formula designed for hackathon agility
-and transparency. Risk scores range from 0 to 100 based on verified community evidence.
+This service uses a deterministic, rule-based formula combining:
+1. Verified community evidence (independent reporters, recency, location spread, category diversity)
+2. Scam pattern heuristics (impersonation, keywords, structural anomalies)
+3. Verified official registry overrides
 """
 
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from app.models.scam_report import ScamReport
+from app.services.pattern_detection_service import analyze_scam_patterns
 
 
 @dataclass
 class RiskAssessment:
-    """Calculated risk assessment containing score, verdict, and supporting metadata."""
+    """Calculated risk assessment containing score, verdict, supporting metadata, and pattern signals."""
 
     risk_score: int  # 0 to 100
     verdict: str  # NO_REPORTS | UNDER_REVIEW | SUSPICIOUS | KNOWN_SCAM | VERIFIED_BUSINESS
@@ -27,26 +30,48 @@ class RiskAssessment:
     top_category: Optional[str]
     distinct_areas_count: int
     message: str
+    risk_signals: List[Dict[str, Any]] = field(default_factory=list)
+    pattern_risk_score: int = 0
+    pattern_summary: str = ""
+    recommended_action: str = "VERIFY_THROUGH_OFFICIAL_CHANNEL"
 
 
 def calculate_risk(
     accepted_reports: List[ScamReport],
     is_verified_business: bool = False,
     verified_business_name: Optional[str] = None,
+    raw_query: Optional[str] = None,
+    target_type: Optional[str] = None,
+    normalized_val: Optional[str] = None,
 ) -> RiskAssessment:
-    """Calculate deterministic risk score and verdict for community scam reports.
+    """Calculate deterministic risk score, verdict, and pattern risk signals.
 
     VERIFICATION PROGRESSION:
     ------------------------
-    1. NO_REPORTS        : 0 accepted reports. (Score: 0, Confidence: NONE)
-    2. UNDER_REVIEW      : Exactly 1 report or single reporter. (Score: 25, Confidence: LOW)
+    1. NO_REPORTS        : 0 accepted reports. (Base score: 0). Heuristic patterns may generate
+                          cautious risk signals without claiming fraud.
+    2. UNDER_REVIEW      : Exactly 1 report or single reporter. (Base score: 25, Confidence: LOW).
                           One report does NOT confirm fraud; prevents false accusations.
-    3. SUSPICIOUS        : 2–4 independent reporters or moderate risk score. (Confidence: MEDIUM)
-    4. KNOWN_SCAM/HIGH   : >= 5 independent reports or >= 3 reports with score >= 60. (Confidence: HIGH)
-    5. VERIFIED_BUSINESS : Officially verified or toll-free entity. (Score: 5, Confidence: HIGH)
+    3. SUSPICIOUS        : 2–4 independent reporters or moderate risk score. (Confidence: MEDIUM).
+    4. KNOWN_SCAM/HIGH   : >= 5 independent reports or >= 3 reports with score >= 60. (Confidence: HIGH).
+    5. VERIFIED_BUSINESS : Officially verified or toll-free entity. (Score: 5, Confidence: HIGH).
     """
+    query_str = raw_query or ""
+    t_type = target_type or "phone"
+    norm_val = normalized_val or query_str
+
+    # 1. Verified business registry check
     if is_verified_business:
         biz_name = verified_business_name or "Official verified entity"
+        pattern_res = analyze_scam_patterns(
+            raw_query=query_str,
+            target_type=t_type,
+            normalized_val=norm_val,
+            accepted_reports=accepted_reports,
+            is_verified=True,
+            community_risk_score=5,
+            community_verdict="VERIFIED_BUSINESS",
+        )
         return RiskAssessment(
             risk_score=5,
             verdict="VERIFIED_BUSINESS",
@@ -60,28 +85,54 @@ def calculate_risk(
             top_category=None,
             distinct_areas_count=0,
             message=f"Verified business entity ({biz_name}). Low risk.",
+            risk_signals=[s.model_dump() for s in pattern_res.risk_signals],
+            pattern_risk_score=pattern_res.pattern_risk_score,
+            pattern_summary=pattern_res.pattern_summary,
+            recommended_action=pattern_res.recommended_action,
         )
 
     report_count = len(accepted_reports)
+
+    # 2. No Community Reports Case
     if report_count == 0:
+        pattern_res = analyze_scam_patterns(
+            raw_query=query_str,
+            target_type=t_type,
+            normalized_val=norm_val,
+            accepted_reports=[],
+            is_verified=False,
+            community_risk_score=0,
+            community_verdict="NO_REPORTS",
+        )
+
+        has_signals = len(pattern_res.risk_signals) > 0
+        conf_level = "LOW" if has_signals else "NONE"
+
+        message = (
+            "No community reports recorded for this identifier so far. "
+            "Note: silence does not guarantee safety."
+        )
+
         return RiskAssessment(
             risk_score=0,
             verdict="NO_REPORTS",
             verification_status="NO_REPORTS",
             risk_level="safe",
-            confidence_level="NONE",
+            confidence_level=conf_level,
             report_count=0,
             independent_report_count=0,
             first_reported=None,
             last_reported=None,
             top_category=None,
             distinct_areas_count=0,
-            message="No community reports recorded for this identifier so far. Note: silence does not guarantee safety.",
+            message=message,
+            risk_signals=[s.model_dump() for s in pattern_res.risk_signals],
+            pattern_risk_score=pattern_res.pattern_risk_score,
+            pattern_summary=pattern_res.pattern_summary,
+            recommended_action=pattern_res.recommended_action,
         )
 
-    # 1. Independent Reporters Calculation
-    # Distinct salted reporter fingerprints ensure duplicate submissions by one person
-    # cannot artificially inflate scam confidence.
+    # 3. Independent Reporters Calculation
     distinct_fingerprints = {
         r.reporter_fingerprint_hash for r in accepted_reports if r.reporter_fingerprint_hash
     }
@@ -108,9 +159,17 @@ def calculate_risk(
     area_ids = {r.area_id for r in accepted_reports if r.area_id is not None}
     distinct_areas_count = len(area_ids)
 
-    # 2. Single Report / Single Reporter Guard (UNDER_REVIEW)
-    # A single user report must NOT automatically mean that an identifier is confirmed scam!
+    # 4. Single Report / Single Reporter Guard (UNDER_REVIEW)
     if report_count == 1 or independent_report_count <= 1:
+        pattern_res = analyze_scam_patterns(
+            raw_query=query_str,
+            target_type=t_type,
+            normalized_val=norm_val,
+            accepted_reports=accepted_reports,
+            is_verified=False,
+            community_risk_score=25,
+            community_verdict="UNDER_REVIEW",
+        )
         return RiskAssessment(
             risk_score=25,
             verdict="UNDER_REVIEW",
@@ -124,9 +183,13 @@ def calculate_risk(
             top_category=top_category,
             distinct_areas_count=distinct_areas_count,
             message="This identifier has received an initial community report and is currently under review. One report does not confirm fraud; additional independent signals are required.",
+            risk_signals=[s.model_dump() for s in pattern_res.risk_signals],
+            pattern_risk_score=pattern_res.pattern_risk_score,
+            pattern_summary=pattern_res.pattern_summary,
+            recommended_action=pattern_res.recommended_action,
         )
 
-    # 3. Base Count Factor (Keyed to Independent Reporters)
+    # 5. Base Count Factor (Keyed to Independent Reporters)
     if independent_report_count == 2:
         count_factor = 25
     elif independent_report_count < 5:
@@ -134,12 +197,12 @@ def calculate_risk(
     else:
         count_factor = 45
 
-    # 4. Trust Score Factor (Scaled 0–25)
+    # 6. Trust Score Factor (Scaled 0–25)
     total_trust = sum(r.trust_score for r in accepted_reports)
     avg_trust = total_trust / report_count
     trust_factor = avg_trust * 0.25
 
-    # 5. Recency Factor (Scaled 0–20)
+    # 7. Recency Factor (Scaled 0–20)
     now = datetime.now(timezone.utc)
     latest_created = latest_report.created_at
     if latest_created.tzinfo is None:
@@ -155,7 +218,7 @@ def calculate_risk(
     else:
         recency_factor = 5
 
-    # 6. Area Spread Factor (Scaled 0–10)
+    # 8. Area Spread Factor (Scaled 0–10)
     if distinct_areas_count >= 3:
         area_factor = 10
     elif distinct_areas_count == 2:
@@ -163,19 +226,32 @@ def calculate_risk(
     else:
         area_factor = 0
 
-    # 7. Category Consistency Bonus (Up to 10 points)
-    # Multiple independent reporters flagging the same category indicates coordinated campaign
+    # 9. Category Consistency Bonus (Up to 10 points)
     category_consistency = 0
     if categories:
         most_common_cat, cat_count = Counter(categories).most_common(1)[0]
         if (cat_count / len(categories)) >= 0.7:
             category_consistency = 10
 
-    # Total Score calculation
-    computed_score = count_factor + trust_factor + recency_factor + area_factor + category_consistency
-    final_score = int(min(100, max(0, round(computed_score))))
+    # 10. Run Pattern Detection Analysis
+    computed_community_score = count_factor + trust_factor + recency_factor + area_factor + category_consistency
+    tentative_score = int(min(100, max(0, round(computed_community_score))))
 
-    # 8. Multi-Signal Verdict & Verification Determination
+    pattern_res = analyze_scam_patterns(
+        raw_query=query_str,
+        target_type=t_type,
+        normalized_val=norm_val,
+        accepted_reports=accepted_reports,
+        is_verified=False,
+        community_risk_score=tentative_score,
+        community_verdict="SUSPICIOUS" if tentative_score < 60 else "KNOWN_SCAM",
+    )
+
+    # Pattern boost: supporting evidence contributes up to 10 points to final score
+    pattern_boost = min(10, round(pattern_res.pattern_risk_score * 0.10))
+    final_score = int(min(100, max(0, round(computed_community_score + pattern_boost))))
+
+    # 11. Multi-Signal Verdict & Verification Determination
     if independent_report_count >= 5 or (independent_report_count >= 3 and final_score >= 60):
         verdict = "KNOWN_SCAM"
         verification_status = "HIGH_RISK"
@@ -209,4 +285,8 @@ def calculate_risk(
         top_category=top_category,
         distinct_areas_count=distinct_areas_count,
         message=message,
+        risk_signals=[s.model_dump() for s in pattern_res.risk_signals],
+        pattern_risk_score=pattern_res.pattern_risk_score,
+        pattern_summary=pattern_res.pattern_summary,
+        recommended_action=pattern_res.recommended_action,
     )
