@@ -103,12 +103,19 @@ Allows users to anonymously report a suspicious phone number, UPI ID, or URL.
 
 ## 3. Scam Lookup & Verification
 
-### `GET /lookup`
+### `POST /lookup` and `GET /lookup`
 Checks whether an identifier (phone, UPI ID, or URL) has been reported and returns its aggregated risk assessment.
+Also available under `POST /api/lookup` and `GET /api/lookup`.
 
-- **Purpose:** "Check before you trust" verification search.
-- **Method:** `GET`
-- **Query Parameters:**
+- **Purpose:** "Check before you trust" verification search (Web App & Chrome Extension).
+- **Methods:** `POST`, `GET`
+- **POST Body:**
+```json
+{
+  "query": "https://example.com"
+}
+```
+- **GET Query Parameters:**
   - `query` (string, required): The phone number, UPI ID, or URL to inspect.
   - `type` (string, optional): `"phone"` | `"upi"` | `"url"`
 
@@ -118,12 +125,40 @@ Checks whether an identifier (phone, UPI ID, or URL) has been reported and retur
 {
   "query": "+919876543210",
   "target_type": "phone",
+  "verdict": "KNOWN_SCAM",
   "risk_level": "high",
   "risk_score": 85,
+  "pattern_risk_score": 75,
+  "confidence_level": "HIGH",
+  "pattern_summary": "High community corroboration combined with multi-category report activity.",
+  "recommended_action": "DO_NOT_SHARE_MONEY",
   "report_count": 14,
+  "independent_report_count": 14,
   "first_reported": "2026-10-25T10:00:00Z",
   "last_reported": "2026-10-31T09:30:00Z",
   "top_category": "fake_job",
+  "evidence_items": [
+    "Documented by 14 independent community report(s) across 16 geographic area(s)",
+    "Primary reported fraud vector: Fake Job",
+    "High corroboration: Confirmed by 14 independent community reporters"
+  ],
+  "related_indicators": [
+    "+91987*****10"
+  ],
+  "risk_signals": [
+    {
+      "type": "HIGH_COMMUNITY_CORROBORATION",
+      "severity": "high",
+      "message": "High corroboration: Confirmed by 14 independent community reporters",
+      "confidence": "high"
+    },
+    {
+      "type": "CATEGORY_DIVERSITY",
+      "severity": "high",
+      "message": "Identifier reported across multiple distinct scam vectors",
+      "confidence": "high"
+    }
+  ],
   "recent_reports": [
     {
       "category": "fake_job",
@@ -135,17 +170,22 @@ Checks whether an identifier (phone, UPI ID, or URL) has been reported and retur
 }
 ```
 
-> **Risk Level Values:** `"safe"` (score 0–19), `"suspicious"` (score 20–59), `"high"` (score 60–100).
+> **Risk Level Values:** `"safe"` (score 0–19), `"suspicious"` (score 20–59), `"high"` (score 60–100).  
+> **Recommended Actions:** `"PROCEED_WITH_CAUTION"`, `"DO_NOT_SHARE_MONEY"`, `"VERIFY_THROUGH_OFFICIAL_CHANNEL"`, `"AVOID_CLICKING_LINK"`, `"REPORT_TO_1930_IF_MONEY_LOST"`.  
+> **Investigation Mode Fields:**  
+> - `evidence_items`: Array of verifiable human-readable reasons (community reports, verified registry matches, pattern signals). Returns `[]` for `NO_REPORTS`.  
+> - `related_indicators`: Correlated identifiers or domains from active alert data or co-reported clusters. Returns `[]` if none.
 
 #### Error Responses
 - **Status Code:** `400 Bad Request`
 ```json
 {
-  "detail": "Query parameter 'query' is required"
+  "detail": "Input identifier ('query' or 'value') is required and cannot be empty."
 }
 ```
 
 ---
+
 
 ## 4. Community Scam Map
 

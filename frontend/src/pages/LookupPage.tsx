@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Search } from 'lucide-react';
+import { Search, AlertCircle } from 'lucide-react';
 import { LookupForm } from '../components/lookup/LookupForm';
 import { ResultCard } from '../components/lookup/ResultCard';
 import { lookupIdentifier } from '../services/api';
@@ -13,14 +13,18 @@ export const LookupPage: React.FC = () => {
 
   const [result, setResult] = useState<LookupResult | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
 
   const performLookup = async (q: string, t: IdentifierType) => {
     setLoading(true);
+    setError(null);
     setSearchParams({ q, type: t });
 
     try {
       const res = await lookupIdentifier(q, t);
       setResult(res);
+    } catch (err: any) {
+      setError(err?.message || 'Lookup encountered an error. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -69,6 +73,14 @@ export const LookupPage: React.FC = () => {
         </div>
       )}
 
+      {/* Error state */}
+      {!loading && error && (
+        <div className="bg-risk-red-tint/30 border border-risk-red/30 rounded-card p-4 text-xs text-risk-red flex items-center gap-2 animate-fadeIn">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+
       {/* Result Display */}
       {!loading && result && (
         <div className="animate-fadeIn">
@@ -77,7 +89,7 @@ export const LookupPage: React.FC = () => {
       )}
 
       {/* Initial Empty State Helper */}
-      {!loading && !result && (
+      {!loading && !result && !error && (
         <div className="bg-white border border-line rounded-card p-8 text-center space-y-3 shadow-sm">
           <Search className="w-10 h-10 text-brand/40 mx-auto" />
           <h3 className="text-base font-bold text-ink">

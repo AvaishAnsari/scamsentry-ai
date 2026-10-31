@@ -1,5 +1,5 @@
 import React from 'react';
-import { XCircle, AlertTriangle, HelpCircle, CheckCircle2 } from 'lucide-react';
+import { XCircle, AlertTriangle, HelpCircle, CheckCircle2, Clock } from 'lucide-react';
 import { Verdict } from '../../types';
 
 interface VerdictBadgeProps {
@@ -41,6 +41,22 @@ export const VerdictBadge: React.FC<VerdictBadgeProps> = ({ verdict, size = 'md'
         </span>
       );
 
+    case 'UNDER_REVIEW':
+      return (
+        <span
+          className={`inline-flex items-center gap-1.5 font-bold rounded-full ${
+            size === 'sm'
+              ? 'px-2 py-0.5 text-xs'
+              : size === 'lg'
+              ? 'px-4 py-1.5 text-sm'
+              : 'px-3 py-1 text-xs'
+          } bg-amber-50 text-amber-900 border border-amber-300`}
+        >
+          <Clock className="w-4 h-4 shrink-0 text-amber-600" />
+          <span>COMMUNITY WARNING (UNDER REVIEW)</span>
+        </span>
+      );
+
     case 'VERIFIED_BUSINESS':
       return (
         <span
@@ -75,4 +91,3 @@ export const VerdictBadge: React.FC<VerdictBadgeProps> = ({ verdict, size = 'md'
       );
   }
 };
-
