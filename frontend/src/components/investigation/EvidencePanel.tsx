@@ -127,7 +127,7 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
                   {item.description}
                 </p>
 
-                {item.source.toLowerCase().includes('heuristic') && (
+                {item.source?.toLowerCase().includes('heuristic') && (
                   <div className="mt-2 text-[11px] text-brand bg-brand-tint/60 px-2.5 py-1 rounded-btn flex items-center gap-1.5 font-medium">
                     <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-brand" />
                     <span>Cross-referenced against registered trademark patterns</span>

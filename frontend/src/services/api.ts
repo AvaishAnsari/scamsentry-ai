@@ -434,8 +434,47 @@ export async function investigateIdentifier(query: string, type: IdentifierType 
         last_checked: data.last_checked || 'Just now',
         confidence: typeof data.confidence === 'number' ? data.confidence : undefined,
         evidence_source: data.evidence_source || (data.report_count > 0 ? 'ScamSentry Community & Analysis Engine' : undefined),
-        evidence_items: Array.isArray(data.evidence_items) ? data.evidence_items : [],
-        related_indicators: Array.isArray(data.related_indicators) ? data.related_indicators : [],
+        evidence_items: Array.isArray(data.evidence_items)
+          ? data.evidence_items.map((ev: any, idx: number) => {
+              if (typeof ev === 'string') {
+                let severity: 'critical' | 'high' | 'medium' | 'low' | 'info' = 'info';
+                const lower = ev.toLowerCase();
+                if (lower.includes('high') || lower.includes('impersonat') || lower.includes('spike') || lower.includes('phishing')) {
+                  severity = 'high';
+                } else if (lower.includes('medium') || lower.includes('keyword') || lower.includes('hyphen')) {
+                  severity = 'medium';
+                }
+                return {
+                  id: `ev-${idx}`,
+                  type: 'indicator' as const,
+                  title: 'Evidence Signal',
+                  description: ev,
+                  source: lower.includes('pattern') || lower.includes('heuristic') || lower.includes('brand') || lower.includes('keyword') || lower.includes('hyphen')
+                    ? 'Pattern Heuristics'
+                    : 'Community Reports',
+                  confidence: 0.9,
+                  severity,
+                  explanation: ev,
+                };
+              }
+              return ev;
+            })
+          : [],
+        related_indicators: Array.isArray(data.related_indicators)
+          ? data.related_indicators.map((ri: any, idx: number) => {
+              if (typeof ri === 'string') {
+                return {
+                  id: `ri-${idx}`,
+                  type: (ri.includes('@') ? 'upi' : /^\+?\d+$/.test(ri) ? 'phone' : 'url') as any,
+                  label: 'Linked Entity',
+                  value: ri,
+                  relationship: 'Associated with incident report',
+                  risk_level: 'suspicious' as const,
+                };
+              }
+              return ri;
+            })
+          : [],
         is_mock: false,
       };
     }
