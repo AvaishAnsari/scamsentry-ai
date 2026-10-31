@@ -3,7 +3,7 @@
  *
  * Avaish's Universal Lookup API Integration:
  * - Method: POST
- * - Base URL: http://localhost:8001 (configurable)
+ * - Base URL: http://localhost:8000 (configurable)
  * - Endpoint: /api/lookup
  * - Request payload: { "query": "<currently_visited_url>" }
  * - Response fields: verdict, risk_score, risk_level, report_count, top_category
@@ -13,7 +13,7 @@
  */
 
 const DEFAULT_CONFIG = {
-  backendUrl: 'http://localhost:8001',
+  backendUrl: 'http://localhost:8000',
   lookupEndpoint: '/api/lookup',
   webAppUrl: 'http://localhost:3000',
   forceMock: false,
@@ -77,6 +77,7 @@ const elements = {
   // Actions
   openWebappBtn: document.getElementById('open-webapp-btn'),
   reportScamBtn: document.getElementById('report-scam-btn'),
+  investigateWhyBtn: document.getElementById('investigate-why-btn'),
 };
 
 /**
@@ -208,6 +209,15 @@ function setupEventListeners() {
     });
   });
 
+  // Investigate Why (Deep Investigation Mode)
+  if (elements.investigateWhyBtn) {
+    elements.investigateWhyBtn.addEventListener('click', () => {
+      const target = currentInspectedUrl || currentInspectedDomain || '';
+      const dest = `${currentConfig.webAppUrl}/investigate?url=${encodeURIComponent(target)}`;
+      chrome.tabs.create({ url: dest });
+    });
+  }
+
   // Open Webapp
   elements.openWebappBtn.addEventListener('click', () => {
     const target = currentInspectedUrl || currentInspectedDomain || '';
@@ -300,7 +310,7 @@ function updateUrlDisplay(fullUrl, domain) {
 
 /**
  * Check URL against Avaish's Universal Lookup API
- * POST http://localhost:8001/api/lookup
+ * POST http://localhost:8000/api/lookup
  * Body: { "query": "https://example.com" }
  */
 async function checkUrlRisk(urlToCheck) {

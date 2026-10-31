@@ -424,6 +424,59 @@ class TestLookupAPI(unittest.TestCase):
         get_res = lookup_get(query="https://example.com", type="url", db=self.db)
         self.assertEqual(get_res.verdict, "NO_REPORTS")
 
+    # -------------------------------------------------------------------------
+    # 11. Investigation Mode Fields (evidence_items, related_indicators)
+    # -------------------------------------------------------------------------
+    def test_investigation_mode_evidence_for_unreported_clean_url(self):
+        """Unreported normal URLs must return empty evidence_items and related_indicators."""
+        res = execute_lookup("https://github.com", "url", self.db)
+        self.assertEqual(res.verdict, "NO_REPORTS")
+        self.assertEqual(res.evidence_items, [])
+        self.assertEqual(res.related_indicators, [])
+
+    def test_investigation_mode_evidence_for_scam_with_reports(self):
+        """Reported scam identifiers must return concrete evidence compiled from reports."""
+        ident = Identifier(
+            identifier_type="url",
+            raw_value="sbi-kyc-fake.in/login",
+            normalized_value="https://sbi-kyc-fake.in/login",
+        )
+        self.db.add(ident)
+        self.db.commit()
+
+        # Add 3 reports from distinct reporters
+        for i in range(3):
+            self.db.add(ScamReport(
+                identifier_id=ident.id,
+                scam_type="phishing",
+                description="Fake SBI netbanking portal",
+                status="accepted",
+                trust_score=85,
+                reporter_fingerprint_hash=f"rep_{i}",
+                source_ip_hash=f"ip_{i}",
+            ))
+        self.db.commit()
+
+        res = execute_lookup("sbi-kyc-fake.in/login", "url", self.db)
+        self.assertIn(res.verdict, ["SUSPICIOUS", "KNOWN_SCAM"])
+        self.assertIsInstance(res.evidence_items, list)
+        self.assertGreater(len(res.evidence_items), 0)
+        # Verify evidence includes report count and category
+        evidence_text = " ".join(res.evidence_items)
+        self.assertIn("community report", evidence_text)
+        self.assertIn("Phishing", evidence_text)
+
+    def test_investigation_mode_evidence_for_verified_business(self):
+        """Verified business numbers must return official registry evidence."""
+        res = execute_lookup("1800 123 4567", "phone", self.db)
+        self.assertEqual(res.verdict, "VERIFIED_BUSINESS")
+        self.assertIsInstance(res.evidence_items, list)
+        self.assertGreater(len(res.evidence_items), 0)
+        evidence_text = " ".join(res.evidence_items)
+        self.assertIn("registry match", evidence_text)
+        self.assertEqual(res.related_indicators, [])
+
 
 if __name__ == "__main__":
     unittest.main()
+

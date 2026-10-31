@@ -343,7 +343,30 @@ def seed_database(db: Session, reset: bool = True) -> Dict[str, int]:
     }
 
 
+def seed_if_empty(db: Session) -> Dict[str, int]:
+    """Seed demo data only if the database is empty (idempotent startup seeding).
+
+    Safe to call on every server startup:
+    - If areas table already has rows → skip seeding, return empty dict.
+    - If areas table is empty (fresh install) → run full seed.
+
+    This prevents duplicate demo data accumulating on every server restart,
+    while ensuring a brand-new clone gets working data automatically.
+    """
+    existing_areas = db.query(Area).count()
+    if existing_areas > 0:
+        return {}  # Data already present — do not reseed
+    return seed_database(db, reset=False)
+
+
 if __name__ == "__main__":
+    """Convenience: run directly to reset and reseed the demo database.
+
+    Usage:
+        cd backend
+        source .venv/bin/activate
+        python -m app.services.seed_data
+    """
     session = SessionLocal()
     try:
         counts = seed_database(session, reset=True)

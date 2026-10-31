@@ -92,6 +92,10 @@ export async function lookupIdentifier(query: string, type?: IdentifierType | st
         confidence_level: data.confidence_level || 'NONE',
         risk_level: data.risk_level || 'safe',
         risk_score: typeof data.risk_score === 'number' ? data.risk_score : 0,
+        pattern_risk_score: typeof data.pattern_risk_score === 'number' ? data.pattern_risk_score : 0,
+        pattern_summary: data.pattern_summary,
+        recommended_action: data.recommended_action,
+        risk_signals: data.risk_signals || [],
         report_count: data.report_count || 0,
         independent_report_count: data.independent_report_count ?? data.report_count ?? 0,
         distinct_areas: data.distinct_areas_count ?? data.distinct_areas ?? 0,
@@ -389,4 +393,95 @@ export async function getPlatformStats(): Promise<PlatformStats> {
   } catch {
     return MOCK_STATS;
   }
+}
+
+/**
+ * Investigation Mode Lookup
+ * Queries POST /api/lookup and safely surfaces explainable evidence items
+ * and connection graph data (or safe defaults if backend omits them).
+ */
+export async function investigateIdentifier(query: string, type: IdentifierType = 'url'): Promise<LookupResult> {
+  const cleanQuery = query.trim();
+
+  try {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/lookup`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: cleanQuery, type: type || undefined }),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      return {
+        query: data.query || cleanQuery,
+        target_type: data.target_type || type,
+        normalized_value: data.normalized_value,
+        verdict: data.verdict || 'NO_REPORTS',
+        verification_status: data.verification_status || data.verdict,
+        confidence_level: data.confidence_level || 'NONE',
+        risk_level: data.risk_level || 'safe',
+        risk_score: typeof data.risk_score === 'number' ? data.risk_score : 0,
+        pattern_risk_score: data.pattern_risk_score,
+        pattern_summary: data.pattern_summary,
+        recommended_action: data.recommended_action,
+        risk_signals: data.risk_signals || [],
+        report_count: typeof data.report_count === 'number' ? data.report_count : 0,
+        top_category: data.top_category,
+        message: data.message,
+        community_impact_message: data.community_impact_message,
+        safety_guidance: data.safety_guidance || [],
+        recent_reports: data.recent_reports || [],
+        last_checked: data.last_checked || 'Just now',
+        confidence: typeof data.confidence === 'number' ? data.confidence : undefined,
+        evidence_source: data.evidence_source || (data.report_count > 0 ? 'ScamSentry Community & Analysis Engine' : undefined),
+        evidence_items: Array.isArray(data.evidence_items)
+          ? data.evidence_items.map((ev: any, idx: number) => {
+              if (typeof ev === 'string') {
+                let severity: 'critical' | 'high' | 'medium' | 'low' | 'info' = 'info';
+                const lower = ev.toLowerCase();
+                if (lower.includes('high') || lower.includes('impersonat') || lower.includes('spike') || lower.includes('phishing')) {
+                  severity = 'high';
+                } else if (lower.includes('medium') || lower.includes('keyword') || lower.includes('hyphen')) {
+                  severity = 'medium';
+                }
+                return {
+                  id: `ev-${idx}`,
+                  type: 'indicator' as const,
+                  title: 'Evidence Signal',
+                  description: ev,
+                  source: lower.includes('pattern') || lower.includes('heuristic') || lower.includes('brand') || lower.includes('keyword') || lower.includes('hyphen')
+                    ? 'Pattern Heuristics'
+                    : 'Community Reports',
+                  confidence: 0.9,
+                  severity,
+                  explanation: ev,
+                };
+              }
+              return ev;
+            })
+          : [],
+        related_indicators: Array.isArray(data.related_indicators)
+          ? data.related_indicators.map((ri: any, idx: number) => {
+              if (typeof ri === 'string') {
+                return {
+                  id: `ri-${idx}`,
+                  type: (ri.includes('@') ? 'upi' : /^\+?\d+$/.test(ri) ? 'phone' : 'url') as any,
+                  label: 'Linked Entity',
+                  value: ri,
+                  relationship: 'Associated with incident report',
+                  risk_level: 'suspicious' as const,
+                };
+              }
+              return ri;
+            })
+          : [],
+        is_mock: false,
+      };
+    }
+  } catch {
+    // Backend offline / timed out
+  }
+
+  console.warn(`[ScamSentry API] Backend offline for investigation on "${cleanQuery}". Using rich demo mock data.`);
+  return generateDefaultMockResult(cleanQuery, type);
 }

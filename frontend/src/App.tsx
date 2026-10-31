@@ -8,6 +8,7 @@ import { ReportDonePage } from './pages/ReportDonePage';
 import { MapPage } from './pages/MapPage';
 import { AlertsPage } from './pages/AlertsPage';
 import { HowItWorksPage } from './pages/HowItWorksPage';
+import { InvestigationPage } from './pages/InvestigationPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 
 export const App: React.FC = () => {
@@ -17,6 +18,7 @@ export const App: React.FC = () => {
         <Route path="/" element={<AppShell />}>
           <Route index element={<HomePage />} />
           <Route path="check" element={<LookupPage />} />
+          <Route path="investigate" element={<InvestigationPage />} />
           <Route path="report" element={<ReportPage />} />
           <Route path="report/done" element={<ReportDonePage />} />
           <Route path="map" element={<MapPage />} />

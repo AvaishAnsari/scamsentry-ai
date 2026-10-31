@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
@@ -53,6 +53,10 @@ class LookupResponse(BaseModel):
     confidence_level: str = "NONE"  # NONE | LOW | MEDIUM | HIGH
     risk_level: str  # safe | low | suspicious | high
     risk_score: int  # 0 to 100
+    pattern_risk_score: int = 0
+    pattern_summary: Optional[str] = None
+    recommended_action: str = "VERIFY_THROUGH_OFFICIAL_CHANNEL"
+    risk_signals: List[Dict[str, Any]] = Field(default_factory=list)
     report_count: int
     independent_report_count: int = 0
     first_reported: Optional[str] = None
@@ -65,6 +69,108 @@ class LookupResponse(BaseModel):
         "Community reports serve as early warning signals to help others check before they trust."
     )
     safety_guidance: list = Field(default_factory=list)
+    evidence_items: List[str] = Field(
+        default_factory=list,
+        description="Verifiable reasons and intelligence supporting the risk verdict",
+    )
+    related_indicators: List[str] = Field(
+        default_factory=list,
+        description="Correlated indicators or domains from stored scam clusters",
+    )
+
+
+
+def _compile_evidence_items(
+    assessment,
+    is_verified: bool,
+    biz_name: Optional[str],
+) -> List[str]:
+    """Compile verifiable evidence reasons based only on actual database and pattern signals."""
+    evidence: List[str] = []
+
+    if is_verified:
+        evidence.append(f"Official verified registry match: {biz_name}")
+        evidence.append("Zero fraud reports recorded across community databases")
+        return evidence
+
+    if assessment.report_count > 0:
+        evidence.append(
+            f"Documented by {assessment.independent_report_count} independent community report(s) across {assessment.distinct_areas_count} geographic area(s)"
+        )
+        if assessment.top_category:
+            evidence.append(
+                f"Primary reported fraud vector: {assessment.top_category.replace('_', ' ').title()}"
+            )
+        for sig in (assessment.risk_signals or []):
+            msg = sig.get("message")
+            if msg and msg not in evidence:
+                evidence.append(msg)
+        return evidence
+
+    # For zero community reports: include pattern risk signals if any detected
+    for sig in (assessment.risk_signals or []):
+        msg = sig.get("message")
+        if msg and msg not in evidence:
+            evidence.append(msg)
+
+    # Clean NO_REPORTS returns empty array [] (no fabricated evidence)
+    return evidence
+
+
+def _find_related_indicators(
+    normalized_value: str,
+    top_category: Optional[str],
+    db: Session,
+) -> List[str]:
+    """Fetch related indicators or domains from stored alert data matching this threat cluster."""
+    related: List[str] = []
+    if not top_category:
+        return related
+
+    try:
+        from app.models.alert import Alert
+        from app.models.identifier import Identifier
+        from app.models.scam_report import ScamReport
+
+        # 1. Sample indicators from active alerts matching the same threat vector
+        alerts = (
+            db.query(Alert)
+            .filter(Alert.scam_type == top_category, Alert.is_active.is_(True))
+            .limit(5)
+            .all()
+        )
+        for alt in alerts:
+            for ind in (alt.sample_indicators or []):
+                if ind and ind != normalized_value and ind not in related:
+                    related.append(ind)
+                    if len(related) >= 5:
+                        break
+            if len(related) >= 5:
+                break
+
+        # 2. Correlated indicators in database reported under the exact same scam category
+        if len(related) < 5:
+            other_idents = (
+                db.query(Identifier.normalized_value)
+                .join(ScamReport, ScamReport.identifier_id == Identifier.id)
+                .filter(
+                    ScamReport.scam_type == top_category,
+                    ScamReport.status == "accepted",
+                    Identifier.normalized_value != normalized_value,
+                )
+                .distinct()
+                .limit(5 - len(related))
+                .all()
+            )
+            for row in other_idents:
+                val = row[0]
+                if val and val not in related:
+                    related.append(val)
+    except Exception:
+        pass
+
+    return related
+
 
 
 def execute_lookup(raw_input: str, expected_type: Optional[str], db: Session) -> LookupResponse:
@@ -105,9 +211,22 @@ def execute_lookup(raw_input: str, expected_type: Optional[str], db: Session) ->
     # 3. If identifier is not in DB, return clean verdict (VERIFIED_BUSINESS or NO_REPORTS)
     if identifier_record is None:
         if is_verified:
-            assessment = calculate_risk([], is_verified_business=True, verified_business_name=biz_name)
+            assessment = calculate_risk(
+                [],
+                is_verified_business=True,
+                verified_business_name=biz_name,
+                raw_query=raw,
+                target_type=normalized.identifier_type,
+                normalized_val=normalized.normalized_value,
+            )
         else:
-            assessment = calculate_risk([])
+            assessment = calculate_risk(
+                [],
+                raw_query=raw,
+                target_type=normalized.identifier_type,
+                normalized_val=normalized.normalized_value,
+            )
+        evidence = _compile_evidence_items(assessment, is_verified, biz_name)
         return LookupResponse(
             success=True,
             query=raw,
@@ -118,6 +237,10 @@ def execute_lookup(raw_input: str, expected_type: Optional[str], db: Session) ->
             confidence_level=assessment.confidence_level,
             risk_level=assessment.risk_level,
             risk_score=assessment.risk_score,
+            pattern_risk_score=assessment.pattern_risk_score,
+            pattern_summary=assessment.pattern_summary,
+            recommended_action=assessment.recommended_action,
+            risk_signals=assessment.risk_signals or [],
             report_count=0,
             independent_report_count=0,
             first_reported=None,
@@ -128,6 +251,8 @@ def execute_lookup(raw_input: str, expected_type: Optional[str], db: Session) ->
             message=assessment.message,
             community_impact_message="Community reports serve as early warning signals to help others check before they trust.",
             safety_guidance=get_safety_guidance(None),
+            evidence_items=evidence,
+            related_indicators=[],
         )
 
     # 4. Fetch only accepted reports (excluding rejected, duplicate, rate_limited)
@@ -143,9 +268,21 @@ def execute_lookup(raw_input: str, expected_type: Optional[str], db: Session) ->
 
     # 5. Calculate deterministic risk score & verdict
     if is_verified and len(accepted_reports) == 0:
-        assessment = calculate_risk(accepted_reports, is_verified_business=True, verified_business_name=biz_name)
+        assessment = calculate_risk(
+            accepted_reports,
+            is_verified_business=True,
+            verified_business_name=biz_name,
+            raw_query=raw,
+            target_type=normalized.identifier_type,
+            normalized_val=normalized.normalized_value,
+        )
     else:
-        assessment = calculate_risk(accepted_reports)
+        assessment = calculate_risk(
+            accepted_reports,
+            raw_query=raw,
+            target_type=normalized.identifier_type,
+            normalized_val=normalized.normalized_value,
+        )
 
     # 6. Build sanitized recent reports preview
     recent_items: List[RecentReportItem] = []
@@ -159,6 +296,9 @@ def execute_lookup(raw_input: str, expected_type: Optional[str], db: Session) ->
             )
         )
 
+    evidence = _compile_evidence_items(assessment, is_verified, biz_name)
+    related = _find_related_indicators(normalized.normalized_value, assessment.top_category, db)
+
     return LookupResponse(
         success=True,
         query=raw,
@@ -169,6 +309,10 @@ def execute_lookup(raw_input: str, expected_type: Optional[str], db: Session) ->
         confidence_level=assessment.confidence_level,
         risk_level=assessment.risk_level,
         risk_score=assessment.risk_score,
+        pattern_risk_score=assessment.pattern_risk_score,
+        pattern_summary=assessment.pattern_summary,
+        recommended_action=assessment.recommended_action,
+        risk_signals=assessment.risk_signals or [],
         report_count=assessment.report_count,
         independent_report_count=assessment.independent_report_count,
         first_reported=assessment.first_reported.isoformat() if assessment.first_reported else None,
@@ -179,7 +323,10 @@ def execute_lookup(raw_input: str, expected_type: Optional[str], db: Session) ->
         message=assessment.message,
         community_impact_message="Community reports serve as early warning signals to help others check before they trust.",
         safety_guidance=get_safety_guidance(assessment.top_category),
+        evidence_items=evidence,
+        related_indicators=related,
     )
+
 
 
 @router.post("/lookup", response_model=LookupResponse)

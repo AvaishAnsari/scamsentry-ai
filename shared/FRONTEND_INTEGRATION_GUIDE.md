@@ -23,9 +23,23 @@ Following mentor feedback, ScamSentry AI separates **community intelligence sign
 5. **Community Impact:**  
    Every report serves as an early warning for others. There are **zero financial bounties** for reporting, avoiding financial incentives for fake reports.
 
+### Community Evidence vs. Pattern-Based Risk Signals
+
+ScamSentry AI combines two distinct layers of intelligence:
+
+| Layer | Source | Weight | Capability |
+| :--- | :--- | :--- | :--- |
+| **Community Evidence** | Independent user reports, salted client fingerprints, multi-city geographic spread | **Strongest** | Confirms active scam campaigns and escalates status to `SUSPICIOUS` or `KNOWN_SCAM`. |
+| **Pattern Risk Signals** | Structural URL anomalies, brand impersonation, deceptive keywords, suspicious UPI handles, report surges | **Supporting / Early Warning** | Detects suspicious traits even on identifiers with **zero** previous reports. |
+
+> [!IMPORTANT]
+> **Core Safety Rule:**  
+> **Pattern detection provides an early warning. It does not independently prove that an identifier is fraudulent.**  
+> The system must NEVER automatically claim an identifier is definitely a scam based only on patterns. An unknown identifier with suspicious patterns remains `NO_REPORTS` with a `LOW` confidence warning.
+
 ### Safe Copy Guidelines for Frontend
-- ✅ **Use:** `"Reported by community members"`, `"Under review"`, `"Multiple independent reports detected"`, `"High risk based on community signals"`
-- ❌ **Avoid:** `"This person is a criminal"`, `"Legally confirmed scammer"`, `"Guilty of fraud"`
+- ✅ **Use:** `"Potential risk detected"`, `"Suspicious patterns found"`, `"This identifier requires caution"`, `"Not enough evidence to confirm fraud"`, `"Reported by community members"`, `"Under review"`
+- ❌ **Avoid:** `"This is definitely a scam"`, `"This person is a criminal"`, `"Legally confirmed scammer"`, `"Guilty of fraud"`
 
 ---
 
@@ -85,14 +99,15 @@ The backend explicitly permits local Vite development:
 
 Use these exact queries during hackathon presentations and local UI testing to demonstrate the full verification progression:
 
-| Scenario | Exact Search Input | Type | Verdict / Status | Confidence | Score | Reports | Notes |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Known Scam Phone** | `+91 98765 43210` | `phone` | `KNOWN_SCAM` (`HIGH_RISK`) | `HIGH` | 95 / 100 | 127 | High volume across 16 areas (Digital arrest, KYC fraud, loan scams) |
-| **Suspicious Phone** | `+91 91234 56789` | `phone` | `SUSPICIOUS` | `MEDIUM` | 59 / 100 | 2 | 2 independent community reports in Bengaluru |
-| **Under Review UPI** | `fraud.merchant@okaxis` | `upi` | `UNDER_REVIEW` | `LOW` | 25 / 100 | 1 | 1 initial report; NOT confirmed fraud |
-| **Unreported UPI** | `kyc.update92@okaxis` | `upi` | `NO_REPORTS` | `NONE` | 0 / 100 | 0 | Unflagged identifier; displays safety disclaimer |
-| **Verified Business**| `1800 123 4567` | `phone` | `VERIFIED_BUSINESS` | `HIGH` | 5 / 100 | 0 | Official banking toll-free consumer helpline |
-| **Phishing URL** | `sbi-kyc-update.in/login` | `url` | `KNOWN_SCAM` (`HIGH_RISK`) | `HIGH` | 96 / 100 | 43 | Fake SBI netbanking login portal collecting credentials |
+| Scenario | Exact Search Input | Type | Verdict / Status | Confidence | Score | Pattern Risk | Recommended Action | Notes |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Known Scam Phone** | `+91 98765 43210` | `phone` | `KNOWN_SCAM` | `HIGH` | 95 / 100 | 85 / 100 | `DO_NOT_SHARE_MONEY` | High volume across 16 areas; reports spike & category diversity |
+| **Suspicious Phone** | `+91 91234 56789` | `phone` | `SUSPICIOUS` | `MEDIUM` | 59 / 100 | 45 / 100 | `PROCEED_WITH_CAUTION` | 2 independent community reports in Bengaluru |
+| **Under Review UPI** | `fraud.merchant@okaxis` | `upi` | `UNDER_REVIEW` | `LOW` | 25 / 100 | 25 / 100 | `VERIFY_THROUGH_OFFICIAL_CHANNEL` | 1 initial report; NOT confirmed fraud |
+| **Suspicious Pattern UPI (0 Reports)** | `kyc.verify123@okaxis` | `upi` | `NO_REPORTS` | `LOW` | 0 / 100 | 35 / 100 | `VERIFY_THROUGH_OFFICIAL_CHANNEL` | Pattern-based warning; resembles impersonated service terminology |
+| **Phishing URL (0 Reports)** | `paypal-security-check.xyz` | `url` | `NO_REPORTS` | `LOW` | 0 / 100 | 75 / 100 | `AVOID_CLICKING_LINK` | High-risk TLD, brand imitation, urgency keywords; zero false accusation |
+| **Verified Business** | `1800 123 4567` | `phone` | `VERIFIED_BUSINESS` | `HIGH` | 5 / 100 | 0 / 100 | `PROCEED_WITH_CAUTION` | Official banking toll-free consumer helpline; pattern checks bypassed |
+| **Phishing URL (Reported)** | `sbi-kyc-update.in/login` | `url` | `KNOWN_SCAM` | `HIGH` | 96 / 100 | 88 / 100 | `AVOID_CLICKING_LINK` | Fake SBI netbanking login portal collecting credentials; 43 reports |
 
 ---
 
@@ -134,70 +149,115 @@ Checks a phone number, UPI ID, or URL and returns risk score (0–100), verifica
 - `query` (string, required): Phone number, UPI ID, or URL. (Also accepts `value`).
 - `type` (string, optional): `"phone"` | `"upi"` | `"url"` (auto-detected if omitted).
 
-#### Success Response (`200 OK`) — Known Scam Example
+#### Key Response Fields
+- `verdict` (`"KNOWN_SCAM"` | `"SUSPICIOUS"` | `"UNDER_REVIEW"` | `"NO_REPORTS"` | `"VERIFIED_BUSINESS"`): Overall classification based primarily on community corroboration.
+- `risk_score` (number `0–100`): Overall composite risk score.
+- `pattern_risk_score` (number `0–100`): Structural & heuristic pattern risk score.
+- `confidence_level` (`"NONE"` | `"LOW"` | `"MEDIUM"` | `"HIGH"`): Confidence in risk assessment. Uncorroborated pattern warnings are always `LOW`.
+- `pattern_summary` (string): Neutral, factual summary of pattern detection findings.
+- `recommended_action`:
+  - `PROCEED_WITH_CAUTION`: General vigilance recommended.
+  - `DO_NOT_SHARE_MONEY`: Financial caution advised; do not transfer money or share OTPs.
+  - `VERIFY_THROUGH_OFFICIAL_CHANNEL`: Verify sender independently through published official channels.
+  - `AVOID_CLICKING_LINK`: Do not click the URL or submit credentials.
+  - `REPORT_TO_1930_IF_MONEY_LOST`: Immediate advisory for victims to contact National Cyber Helpline.
+- `risk_signals` (array of objects):
+  - `type` (string): e.g. `BRAND_IMPERSONATION`, `SUSPICIOUS_KEYWORD_PATTERN`, `REPORT_SPIKE`, `IP_ADDRESS_URL`, `CATEGORY_DIVERSITY`, `GEOGRAPHIC_SPREAD`.
+  - `severity` (`"critical"` | `"high"` | `"medium"` | `"low"`): Severity level of the specific indicator.
+  - `message` (string): Human-readable explanation.
+  - `confidence` (`"high"` | `"medium"` | `"low"`): Confidence of this specific signal.
+
+#### Success Response (`200 OK`) — Known Scam Phishing URL Example
 ```json
 {
   "success": true,
-  "query": "+91 98765 43210",
-  "target_type": "phone",
-  "normalized_value": "+919876543210",
+  "query": "sbi-kyc-update.in/login",
+  "target_type": "url",
+  "normalized_value": "https://sbi-kyc-update.in/login",
   "verdict": "KNOWN_SCAM",
   "verification_status": "HIGH_RISK",
   "confidence_level": "HIGH",
   "risk_level": "high",
-  "risk_score": 95,
-  "report_count": 127,
-  "independent_report_count": 127,
-  "first_reported": "2026-08-01T04:30:00Z",
-  "last_reported": "2026-10-31T09:45:00Z",
-  "top_category": "digital_arrest",
-  "distinct_areas_count": 16,
-  "message": "High-risk based on 127 independent community reports and detected patterns. Primary reported category: digital arrest.",
-  "community_impact_message": "Community reports serve as early warning signals to help others check before they trust.",
-  "safety_guidance": [
-    "Police, CBI, ED, and customs officials NEVER conduct 'digital arrests' or demand bail money over video calls.",
-    "Disconnect the call immediately and do not transfer funds to 'verification' or 'safe' accounts.",
-    "Contact your local police station or dial the National Cyber Crime Helpline at 1930 immediately."
-  ],
-  "recent_reports": [
+  "risk_score": 96,
+  "pattern_risk_score": 88,
+  "report_count": 43,
+  "independent_report_count": 41,
+  "distinct_areas_count": 8,
+  "top_category": "phishing",
+  "pattern_summary": "Domain name imitates a registered banking institution with verification keywords.",
+  "recommended_action": "AVOID_CLICKING_LINK",
+  "risk_signals": [
     {
-      "category": "digital_arrest",
-      "description": "Pretended to be CBI/Police on video call demanding bail deposit.",
-      "city": "Bengaluru",
-      "reported_at": "2026-10-31T09:45:00Z"
+      "type": "BRAND_IMPERSONATION",
+      "severity": "high",
+      "message": "Domain name appears to imitate a banking-related service ('SBI')",
+      "confidence": "high"
+    },
+    {
+      "type": "SUSPICIOUS_KEYWORDS",
+      "severity": "medium",
+      "message": "URL contains verification-related keywords ('kyc', 'update', 'login')",
+      "confidence": "medium"
+    },
+    {
+      "type": "HIGH_COMMUNITY_CORROBORATION",
+      "severity": "high",
+      "message": "High corroboration: Confirmed by 41 independent community reporters",
+      "confidence": "high"
     }
+  ],
+  "safety_guidance": [
+    "Never enter your netbanking password, OTP, or debit card PIN on unverified websites.",
+    "Official bank portals will never request KYC renewal via third-party SMS links.",
+    "Access netbanking directly by typing the official bank address into your browser."
   ]
 }
 ```
 
-#### Success Response (`200 OK`) — Under Review Example (1 Report)
+#### Success Response (`200 OK`) — Unknown Identifier with Pattern Signals
 ```json
 {
   "success": true,
-  "query": "fraud.merchant@okaxis",
+  "query": "kyc.verify123@okaxis",
   "target_type": "upi",
-  "normalized_value": "fraud.merchant@okaxis",
-  "verdict": "UNDER_REVIEW",
-  "verification_status": "UNDER_REVIEW",
+  "normalized_value": "kyc.verify123@okaxis",
+  "verdict": "NO_REPORTS",
+  "verification_status": "NO_REPORTS",
   "confidence_level": "LOW",
-  "risk_level": "low",
-  "risk_score": 25,
-  "report_count": 1,
-  "independent_report_count": 1,
-  "first_reported": "2026-10-30T10:00:00Z",
-  "last_reported": "2026-10-30T10:00:00Z",
-  "top_category": "fake_job",
-  "distinct_areas_count": 1,
-  "message": "This identifier has received an initial community report and is currently under review. One report does not confirm fraud; additional independent signals are required.",
-  "community_impact_message": "Community reports serve as early warning signals to help others check before they trust.",
-  "safety_guidance": [
-    "Do not pay registration, training, or deposit fees—legitimate employers never charge candidates.",
-    "Verify job offers through official company careers websites rather than Telegram or WhatsApp.",
-    "Never share sensitive documents (Aadhaar, PAN, bank passbooks) with unverified recruiters."
+  "risk_level": "safe",
+  "risk_score": 0,
+  "pattern_risk_score": 35,
+  "report_count": 0,
+  "independent_report_count": 0,
+  "pattern_summary": "Some patterns require caution, but there is not enough evidence to confirm fraud.",
+  "recommended_action": "VERIFY_THROUGH_OFFICIAL_CHANNEL",
+  "risk_signals": [
+    {
+      "type": "SUSPICIOUS_KEYWORD_PATTERN",
+      "severity": "medium",
+      "message": "Identifier name resembles commonly impersonated service terminology (e.g. 'kyc', 'verify')",
+      "confidence": "low"
+    },
+    {
+      "type": "NUMBERED_SERVICE_HANDLE",
+      "severity": "low",
+      "message": "Handle combines service keywords with sequential numeric suffix",
+      "confidence": "low"
+    }
   ],
-  "recent_reports": []
+  "message": "No community reports recorded for this identifier so far. Note: silence does not guarantee safety."
 }
 ```
+
+#### Frontend Display Guidelines: "Why should I be cautious?"
+When `risk_signals` are returned or `pattern_risk_score > 0`, the UI renders a dedicated card:
+1. **Section Header:** `Why should I be cautious?` + optional `Pattern Risk: {score}/100` badge.
+2. **Signals List:** Display `⚠ Suspicious Signals Detected` with each signal's severity badge and descriptive message.
+3. **Recommended Action:** Display the recommended next step prominently.
+4. **Mandatory Pattern Disclaimer:** For low-confidence signals or 0-report identifiers, always display:
+   ```text
+   ⚠ Pattern-based warning — this alone does not confirm fraud.
+   ```
 
 ---
 
