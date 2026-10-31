@@ -19,18 +19,25 @@ load_dotenv(dotenv_path=_env_path)
 # Database URL
 # Priority:
 #   1. DATABASE_URL environment variable (supports PostgreSQL for production)
-#   2. Default: absolute path to backend/scamsentry.db
+#   2. Default: absolute path to backend/scamsentry.db (local) or /tmp/scamsentry.db (Vercel)
 #
-# Using an absolute path here fixes the CWD-relative path bug.
-# The same database file is used whether you run uvicorn from:
-#   - the project root:  uvicorn backend.app.main:app
-#   - the backend/ dir:  uvicorn app.main:app
+# Note on Vercel: The deployment environment has a read-only root filesystem.
+# When running on Vercel without an external DATABASE_URL, SQLite defaults to /tmp
+# to prevent readonly filesystem errors during demo execution.
 # ---------------------------------------------------------------------------
-_default_db_path = _BACKEND_DIR / "scamsentry.db"
+if os.getenv("VERCEL"):
+    _default_db_path = Path("/tmp") / "scamsentry.db"
+else:
+    _default_db_path = _BACKEND_DIR / "scamsentry.db"
+
 DATABASE_URL: str = os.getenv(
     "DATABASE_URL",
     f"sqlite:///{_default_db_path}",
 )
+
+# Normalize legacy postgres:// URI scheme provided by some hosting services to postgresql://
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 # SQLite requires 'check_same_thread: False' for multi-threaded FastAPI execution
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
