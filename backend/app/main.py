@@ -39,7 +39,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS configuration: Permits local Vite (5173) and local React (3000) development
+# CORS configuration: Permits local Vite (5173), local React (3000), backend dev (8000/8001),
+# and Chrome browser extension requests (chrome-extension://<id>)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -49,12 +50,15 @@ app.add_middleware(
         "http://127.0.0.1:3000",
         "http://localhost:8000",
         "http://127.0.0.1:8000",
+        "http://localhost:8001",
+        "http://127.0.0.1:8001",
     ],
-    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
+    allow_origin_regex=r"^(https?://(localhost|127\.0\.0\.1)(:\d+)?|chrome-extension://[a-zA-Z0-9]+)$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 # Register route handlers (available both under /api and root for maximum client compatibility)
 app.include_router(lookup_router, prefix="/api")

@@ -69,6 +69,108 @@ class LookupResponse(BaseModel):
         "Community reports serve as early warning signals to help others check before they trust."
     )
     safety_guidance: list = Field(default_factory=list)
+    evidence_items: List[str] = Field(
+        default_factory=list,
+        description="Verifiable reasons and intelligence supporting the risk verdict",
+    )
+    related_indicators: List[str] = Field(
+        default_factory=list,
+        description="Correlated indicators or domains from stored scam clusters",
+    )
+
+
+
+def _compile_evidence_items(
+    assessment,
+    is_verified: bool,
+    biz_name: Optional[str],
+) -> List[str]:
+    """Compile verifiable evidence reasons based only on actual database and pattern signals."""
+    evidence: List[str] = []
+
+    if is_verified:
+        evidence.append(f"Official verified registry match: {biz_name}")
+        evidence.append("Zero fraud reports recorded across community databases")
+        return evidence
+
+    if assessment.report_count > 0:
+        evidence.append(
+            f"Documented by {assessment.independent_report_count} independent community report(s) across {assessment.distinct_areas_count} geographic area(s)"
+        )
+        if assessment.top_category:
+            evidence.append(
+                f"Primary reported fraud vector: {assessment.top_category.replace('_', ' ').title()}"
+            )
+        for sig in (assessment.risk_signals or []):
+            msg = sig.get("message")
+            if msg and msg not in evidence:
+                evidence.append(msg)
+        return evidence
+
+    # For zero community reports: include pattern risk signals if any detected
+    for sig in (assessment.risk_signals or []):
+        msg = sig.get("message")
+        if msg and msg not in evidence:
+            evidence.append(msg)
+
+    # Clean NO_REPORTS returns empty array [] (no fabricated evidence)
+    return evidence
+
+
+def _find_related_indicators(
+    normalized_value: str,
+    top_category: Optional[str],
+    db: Session,
+) -> List[str]:
+    """Fetch related indicators or domains from stored alert data matching this threat cluster."""
+    related: List[str] = []
+    if not top_category:
+        return related
+
+    try:
+        from app.models.alert import Alert
+        from app.models.identifier import Identifier
+        from app.models.scam_report import ScamReport
+
+        # 1. Sample indicators from active alerts matching the same threat vector
+        alerts = (
+            db.query(Alert)
+            .filter(Alert.scam_type == top_category, Alert.is_active.is_(True))
+            .limit(5)
+            .all()
+        )
+        for alt in alerts:
+            for ind in (alt.sample_indicators or []):
+                if ind and ind != normalized_value and ind not in related:
+                    related.append(ind)
+                    if len(related) >= 5:
+                        break
+            if len(related) >= 5:
+                break
+
+        # 2. Correlated indicators in database reported under the exact same scam category
+        if len(related) < 5:
+            other_idents = (
+                db.query(Identifier.normalized_value)
+                .join(ScamReport, ScamReport.identifier_id == Identifier.id)
+                .filter(
+                    ScamReport.scam_type == top_category,
+                    ScamReport.status == "accepted",
+                    Identifier.normalized_value != normalized_value,
+                )
+                .distinct()
+                .limit(5 - len(related))
+                .all()
+            )
+            for row in other_idents:
+                val = row[0]
+                if val and val not in related:
+                    related.append(val)
+    except Exception:
+        pass
+
+    return related
+
 
 
 def execute_lookup(raw_input: str, expected_type: Optional[str], db: Session) -> LookupResponse:
@@ -124,6 +226,7 @@ def execute_lookup(raw_input: str, expected_type: Optional[str], db: Session) ->
                 target_type=normalized.identifier_type,
                 normalized_val=normalized.normalized_value,
             )
+        evidence = _compile_evidence_items(assessment, is_verified, biz_name)
         return LookupResponse(
             success=True,
             query=raw,
@@ -148,6 +251,8 @@ def execute_lookup(raw_input: str, expected_type: Optional[str], db: Session) ->
             message=assessment.message,
             community_impact_message="Community reports serve as early warning signals to help others check before they trust.",
             safety_guidance=get_safety_guidance(None),
+            evidence_items=evidence,
+            related_indicators=[],
         )
 
     # 4. Fetch only accepted reports (excluding rejected, duplicate, rate_limited)
@@ -191,6 +296,9 @@ def execute_lookup(raw_input: str, expected_type: Optional[str], db: Session) ->
             )
         )
 
+    evidence = _compile_evidence_items(assessment, is_verified, biz_name)
+    related = _find_related_indicators(normalized.normalized_value, assessment.top_category, db)
+
     return LookupResponse(
         success=True,
         query=raw,
@@ -215,7 +323,10 @@ def execute_lookup(raw_input: str, expected_type: Optional[str], db: Session) ->
         message=assessment.message,
         community_impact_message="Community reports serve as early warning signals to help others check before they trust.",
         safety_guidance=get_safety_guidance(assessment.top_category),
+        evidence_items=evidence,
+        related_indicators=related,
     )
+
 
 
 @router.post("/lookup", response_model=LookupResponse)
