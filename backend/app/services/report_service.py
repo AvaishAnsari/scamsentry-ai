@@ -37,16 +37,102 @@ VALID_SCAM_CATEGORIES = {
 }
 
 CATEGORY_ALIASES = {
+    "upi": "upi_fraud",
+    "upi_scam": "upi_fraud",
     "upi_refund": "upi_fraud",
     "kyc_fraud": "fake_kyc",
+    "job": "fake_job",
     "job_scam": "fake_job",
     "fake_job_offer": "fake_job",
+    "fake_job_scam": "fake_job",
     "loan_app": "loan_scam",
     "loan_app_threat": "loan_scam",
+    "investment": "investment_fraud",
     "investment_scam": "investment_fraud",
+    "crypto_scam": "investment_fraud",
+    "otp": "otp_fraud",
+    "otp_scam": "otp_fraud",
+    "fake_website": "phishing",
     "something_else": "other",
     "general": "other",
 }
+
+SAFETY_GUIDANCE = {
+    "upi_fraud": [
+        "Do not send additional money or approve pending payment/collect requests.",
+        "Contact your bank or UPI app support immediately to raise a dispute and freeze the transaction reference.",
+        "Report the unauthorized transaction on the National Cyber Crime portal (cybercrime.gov.in) or call 1930.",
+    ],
+    "fake_job": [
+        "Do not pay registration, training, or deposit fees—legitimate employers never charge candidates.",
+        "Verify job offers through official company careers websites rather than Telegram or WhatsApp.",
+        "Never share sensitive documents (Aadhaar, PAN, bank passbooks) with unverified recruiters.",
+    ],
+    "phishing": [
+        "Do not enter credentials or OTPs on the reported link.",
+        "Immediately change passwords for any banking, email, or social accounts entered on that website.",
+        "Enable Two-Factor Authentication (2FA) with an authenticator app wherever possible.",
+    ],
+    "digital_arrest": [
+        "Police, CBI, ED, and customs officials NEVER conduct 'digital arrests' or demand bail money over video calls.",
+        "Disconnect the call immediately and do not transfer funds to 'verification' or 'safe' accounts.",
+        "Contact your local police station or dial the National Cyber Crime Helpline at 1930 immediately.",
+    ],
+    "fake_kyc": [
+        "Banks and telecom providers do not suspend accounts abruptly via SMS links.",
+        "Never download remote access screen-sharing apps (e.g., AnyDesk, TeamViewer, RustDesk) at a caller's request.",
+        "Visit your nearest official bank branch or telecom store to verify KYC status directly.",
+    ],
+    "electricity_bill": [
+        "Power distribution companies never cut off electricity within 30 minutes via SMS or personal WhatsApp messages.",
+        "Pay utility bills only through official board websites or authorized payment portals (e.g., BBPS).",
+        "Do not call back unauthorized mobile numbers claiming to be utility officers.",
+    ],
+    "loan_scam": [
+        "Do not pay processing or 'insurance' fees upfront before loan disbursement.",
+        "Only borrow from RBI-registered Banks or NBFCs; verify registration numbers on the RBI website.",
+        "Revoke app permissions (contacts, storage, camera) for suspicious instant loan apps.",
+    ],
+    "investment_fraud": [
+        "Beware of promises of guaranteed high daily or weekly returns on crypto or stock tips.",
+        "Legitimate financial advisors are SEBI-registered; verify credentials on sebi.gov.in.",
+        "Refuse further transfers if told you must pay a 'tax' or 'unlock fee' to withdraw your profits.",
+    ],
+    "otp_fraud": [
+        "Never share OTPs, PINs, or password reset codes with anyone—even callers claiming to be bank executives.",
+        "If you shared an OTP, immediately freeze your card/netbanking via your banking app or hotline.",
+        "Review recent transactions for unauthorized debit attempts.",
+    ],
+    "impersonation": [
+        "Verify the caller's identity independently through an established official phone number.",
+        "Beware of callers claiming a relative is in emergency police custody needing immediate bail money.",
+        "Never make urgent transfers without confirming directly with your family member.",
+    ],
+    "fake_customer_care": [
+        "Never dial customer support numbers found on random Google search images or social media posts.",
+        "Reach customer support only through the official verified app or official website URL.",
+        "Support agents will never request remote access to your device or ask you to transfer test amounts.",
+    ],
+    "lottery": [
+        "You cannot win a lottery or contest you never purchased a ticket or entered for.",
+        "Any requirement to pay 'processing fees' or 'customs duties' to collect a prize is 100% fraud.",
+        "Ignore and delete unsolicited prize messages.",
+    ],
+    "other": [
+        "Do not share OTPs, passwords, or personal financial information with unverified contacts.",
+        "Preserve screenshots, message logs, and transaction IDs in case reporting is required.",
+        "Report cyber fraud incidents to the National Cyber Crime Portal at cybercrime.gov.in or call 1930.",
+    ],
+}
+
+
+def get_safety_guidance(category: Optional[str] = None) -> list:
+    """Retrieve actionable next-step safety tips based on scam category."""
+    if not category:
+        return SAFETY_GUIDANCE["other"]
+    clean_cat = category.strip().lower().replace(" ", "_").replace("-", "_")
+    clean_cat = CATEGORY_ALIASES.get(clean_cat, clean_cat)
+    return SAFETY_GUIDANCE.get(clean_cat, SAFETY_GUIDANCE["other"])
 
 
 def generate_reporter_fingerprint(client_ip: Optional[str], user_agent: Optional[str]) -> str:

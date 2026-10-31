@@ -16,9 +16,12 @@ class RiskAssessment:
     """Calculated risk assessment containing score, verdict, and supporting metadata."""
 
     risk_score: int  # 0 to 100
-    verdict: str  # NO_REPORTS | SUSPICIOUS | KNOWN_SCAM | VERIFIED_BUSINESS
-    risk_level: str  # safe | suspicious | high
+    verdict: str  # NO_REPORTS | UNDER_REVIEW | SUSPICIOUS | KNOWN_SCAM | VERIFIED_BUSINESS
+    verification_status: str  # NO_REPORTS | UNDER_REVIEW | SUSPICIOUS | HIGH_RISK | VERIFIED_BUSINESS
+    risk_level: str  # safe | low | suspicious | high
+    confidence_level: str  # NONE | LOW | MEDIUM | HIGH
     report_count: int
+    independent_report_count: int
     first_reported: Optional[datetime]
     last_reported: Optional[datetime]
     top_category: Optional[str]
@@ -31,54 +34,27 @@ def calculate_risk(
     is_verified_business: bool = False,
     verified_business_name: Optional[str] = None,
 ) -> RiskAssessment:
-    """Calculate deterministic risk score and verdict for a set of accepted scam reports.
+    """Calculate deterministic risk score and verdict for community scam reports.
 
-    RISK FORMULA SPECIFICATION:
-    --------------------------
-    Total Score = min(100, Base Count Factor + Trust Factor + Recency Factor + Area Spread Factor)
-
-    1. Base Count Factor (Max 45 points):
-       - 0 reports: 0 pts
-       - 1 report: 15 pts
-       - 2 reports: 25 pts
-       - 3–4 reports: 35 pts
-       - 5+ reports: 45 pts
-
-    2. Trust Score Factor (Max 25 points):
-       - Average internal trust score of accepted reports (0–100) scaled by 0.25.
-       - e.g., avg trust 80 -> 20 pts; avg trust 50 -> 12.5 pts.
-
-    3. Recency Factor (Max 20 points):
-       - Most recent report within last 48 hours: +20 pts
-       - Most recent report within last 7 days: +15 pts
-       - Most recent report within last 30 days: +10 pts
-       - Older than 30 days: +5 pts
-
-    4. Area Spread Factor (Max 10 points):
-       - Reports originating across >= 3 distinct geographic areas: +10 pts
-       - Reports originating across 2 distinct areas: +5 pts
-       - Single area: 0 pts
-
-    VERDICT RULES:
-    -------------
-    - VERIFIED_BUSINESS: Explicitly flagged verified entity with named source. Score: 0-10.
-    - NO_REPORTS: Exactly 0 accepted reports (Score: 0).
-    - SUSPICIOUS: 1-2 reports or risk score between 20 and 59.
-    - KNOWN_SCAM: >= 3 reports or risk score >= 60.
-
-    RISK LEVEL TIERS:
-    ----------------
-    - "safe": 0–19
-    - "suspicious": 20–59
-    - "high": 60–100
+    VERIFICATION PROGRESSION:
+    ------------------------
+    1. NO_REPORTS        : 0 accepted reports. (Score: 0, Confidence: NONE)
+    2. UNDER_REVIEW      : Exactly 1 report or single reporter. (Score: 25, Confidence: LOW)
+                          One report does NOT confirm fraud; prevents false accusations.
+    3. SUSPICIOUS        : 2–4 independent reporters or moderate risk score. (Confidence: MEDIUM)
+    4. KNOWN_SCAM/HIGH   : >= 5 independent reports or >= 3 reports with score >= 60. (Confidence: HIGH)
+    5. VERIFIED_BUSINESS : Officially verified or toll-free entity. (Score: 5, Confidence: HIGH)
     """
     if is_verified_business:
         biz_name = verified_business_name or "Official verified entity"
         return RiskAssessment(
             risk_score=5,
             verdict="VERIFIED_BUSINESS",
+            verification_status="VERIFIED_BUSINESS",
             risk_level="safe",
+            confidence_level="HIGH",
             report_count=len(accepted_reports),
+            independent_report_count=0,
             first_reported=None,
             last_reported=None,
             top_category=None,
@@ -91,8 +67,11 @@ def calculate_risk(
         return RiskAssessment(
             risk_score=0,
             verdict="NO_REPORTS",
+            verification_status="NO_REPORTS",
             risk_level="safe",
+            confidence_level="NONE",
             report_count=0,
+            independent_report_count=0,
             first_reported=None,
             last_reported=None,
             top_category=None,
@@ -100,27 +79,67 @@ def calculate_risk(
             message="No community reports recorded for this identifier so far. Note: silence does not guarantee safety.",
         )
 
-    # 1. Base Count Factor
-    if report_count == 1:
-        count_factor = 15
-    elif report_count == 2:
-        count_factor = 25
-    elif report_count < 5:
-        count_factor = 35
+    # 1. Independent Reporters Calculation
+    # Distinct salted reporter fingerprints ensure duplicate submissions by one person
+    # cannot artificially inflate scam confidence.
+    distinct_fingerprints = {
+        r.reporter_fingerprint_hash for r in accepted_reports if r.reporter_fingerprint_hash
+    }
+    distinct_ips = {
+        r.source_ip_hash for r in accepted_reports if r.source_ip_hash
+    }
+    if distinct_fingerprints:
+        independent_report_count = len(distinct_fingerprints)
+    elif distinct_ips:
+        independent_report_count = len(distinct_ips)
     else:
-        count_factor = 45
-
-    # 2. Trust Score Factor
-    total_trust = sum(r.trust_score for r in accepted_reports)
-    avg_trust = total_trust / report_count
-    trust_factor = avg_trust * 0.25
+        independent_report_count = report_count
 
     # Chronological timestamps
     sorted_reports = sorted(accepted_reports, key=lambda r: r.created_at, reverse=True)
     latest_report = sorted_reports[0]
     first_report = sorted_reports[-1]
 
-    # 3. Recency Factor
+    # Top reported category
+    categories = [r.scam_type for r in accepted_reports if r.scam_type]
+    top_category = Counter(categories).most_common(1)[0][0] if categories else None
+
+    # Area spread
+    area_ids = {r.area_id for r in accepted_reports if r.area_id is not None}
+    distinct_areas_count = len(area_ids)
+
+    # 2. Single Report / Single Reporter Guard (UNDER_REVIEW)
+    # A single user report must NOT automatically mean that an identifier is confirmed scam!
+    if report_count == 1 or independent_report_count <= 1:
+        return RiskAssessment(
+            risk_score=25,
+            verdict="UNDER_REVIEW",
+            verification_status="UNDER_REVIEW",
+            risk_level="low",
+            confidence_level="LOW",
+            report_count=report_count,
+            independent_report_count=independent_report_count,
+            first_reported=first_report.created_at,
+            last_reported=latest_report.created_at,
+            top_category=top_category,
+            distinct_areas_count=distinct_areas_count,
+            message="This identifier has received an initial community report and is currently under review. One report does not confirm fraud; additional independent signals are required.",
+        )
+
+    # 3. Base Count Factor (Keyed to Independent Reporters)
+    if independent_report_count == 2:
+        count_factor = 25
+    elif independent_report_count < 5:
+        count_factor = 35
+    else:
+        count_factor = 45
+
+    # 4. Trust Score Factor (Scaled 0–25)
+    total_trust = sum(r.trust_score for r in accepted_reports)
+    avg_trust = total_trust / report_count
+    trust_factor = avg_trust * 0.25
+
+    # 5. Recency Factor (Scaled 0–20)
     now = datetime.now(timezone.utc)
     latest_created = latest_report.created_at
     if latest_created.tzinfo is None:
@@ -136,9 +155,7 @@ def calculate_risk(
     else:
         recency_factor = 5
 
-    # 4. Area Spread Factor
-    area_ids = {r.area_id for r in accepted_reports if r.area_id is not None}
-    distinct_areas_count = len(area_ids)
+    # 6. Area Spread Factor (Scaled 0–10)
     if distinct_areas_count >= 3:
         area_factor = 10
     elif distinct_areas_count == 2:
@@ -146,35 +163,47 @@ def calculate_risk(
     else:
         area_factor = 0
 
+    # 7. Category Consistency Bonus (Up to 10 points)
+    # Multiple independent reporters flagging the same category indicates coordinated campaign
+    category_consistency = 0
+    if categories:
+        most_common_cat, cat_count = Counter(categories).most_common(1)[0]
+        if (cat_count / len(categories)) >= 0.7:
+            category_consistency = 10
+
     # Total Score calculation
-    computed_score = count_factor + trust_factor + recency_factor + area_factor
+    computed_score = count_factor + trust_factor + recency_factor + area_factor + category_consistency
     final_score = int(min(100, max(0, round(computed_score))))
 
-    # Top reported category
-    categories = [r.scam_type for r in accepted_reports if r.scam_type]
-    top_category = Counter(categories).most_common(1)[0][0] if categories else None
-
-    # Verdict determination
-    if final_score >= 60 or report_count >= 3:
+    # 8. Multi-Signal Verdict & Verification Determination
+    if independent_report_count >= 5 or (independent_report_count >= 3 and final_score >= 60):
         verdict = "KNOWN_SCAM"
+        verification_status = "HIGH_RISK"
         risk_level = "high"
+        confidence_level = "HIGH"
+        cat_disp = top_category.replace("_", " ") if top_category else "scam"
         message = (
-            f"High risk. Reported by {report_count} user(s) as a potential scam. "
-            f"Most frequent category: {top_category or 'general fraud'}."
+            f"High-risk based on {independent_report_count} independent community reports and detected patterns. "
+            f"Primary reported category: {cat_disp}."
         )
     else:
         verdict = "SUSPICIOUS"
+        verification_status = "SUSPICIOUS"
         risk_level = "suspicious"
+        confidence_level = "MEDIUM"
         message = (
-            f"Medium risk. Flagged in {report_count} recent community report(s). "
+            f"Multiple independent community reports ({independent_report_count} reporters) indicate a potential scam pattern. "
             f"Exercise caution and avoid sharing OTPs or credentials."
         )
 
     return RiskAssessment(
         risk_score=final_score,
         verdict=verdict,
+        verification_status=verification_status,
         risk_level=risk_level,
+        confidence_level=confidence_level,
         report_count=report_count,
+        independent_report_count=independent_report_count,
         first_reported=first_report.created_at,
         last_reported=latest_report.created_at,
         top_category=top_category,

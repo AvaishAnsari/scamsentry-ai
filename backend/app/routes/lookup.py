@@ -11,6 +11,7 @@ from app.services.identifier_service import (
     IdentifierValidationError,
     normalize_identifier,
 )
+from app.services.report_service import get_safety_guidance
 from app.services.risk_service import calculate_risk
 
 router = APIRouter(tags=["Lookup"])
@@ -47,16 +48,23 @@ class LookupResponse(BaseModel):
     query: str
     target_type: str
     normalized_value: str
-    verdict: str  # NO_REPORTS | SUSPICIOUS | KNOWN_SCAM | VERIFIED_BUSINESS
-    risk_level: str  # safe | suspicious | high
+    verdict: str  # NO_REPORTS | UNDER_REVIEW | SUSPICIOUS | KNOWN_SCAM | VERIFIED_BUSINESS
+    verification_status: str = "NO_REPORTS"  # NO_REPORTS | UNDER_REVIEW | SUSPICIOUS | HIGH_RISK | VERIFIED_BUSINESS
+    confidence_level: str = "NONE"  # NONE | LOW | MEDIUM | HIGH
+    risk_level: str  # safe | low | suspicious | high
     risk_score: int  # 0 to 100
     report_count: int
+    independent_report_count: int = 0
     first_reported: Optional[str] = None
     last_reported: Optional[str] = None
     top_category: Optional[str] = None
     recent_reports: List[RecentReportItem] = Field(default_factory=list)
     distinct_areas_count: int = 0
     message: str
+    community_impact_message: Optional[str] = (
+        "Community reports serve as early warning signals to help others check before they trust."
+    )
+    safety_guidance: list = Field(default_factory=list)
 
 
 def execute_lookup(raw_input: str, expected_type: Optional[str], db: Session) -> LookupResponse:
@@ -106,15 +114,20 @@ def execute_lookup(raw_input: str, expected_type: Optional[str], db: Session) ->
             target_type=normalized.identifier_type,
             normalized_value=normalized.normalized_value,
             verdict=assessment.verdict,
+            verification_status=assessment.verification_status,
+            confidence_level=assessment.confidence_level,
             risk_level=assessment.risk_level,
             risk_score=assessment.risk_score,
             report_count=0,
+            independent_report_count=0,
             first_reported=None,
             last_reported=None,
             top_category=None,
             recent_reports=[],
             distinct_areas_count=0,
             message=assessment.message,
+            community_impact_message="Community reports serve as early warning signals to help others check before they trust.",
+            safety_guidance=get_safety_guidance(None),
         )
 
     # 4. Fetch only accepted reports (excluding rejected, duplicate, rate_limited)
@@ -152,15 +165,20 @@ def execute_lookup(raw_input: str, expected_type: Optional[str], db: Session) ->
         target_type=normalized.identifier_type,
         normalized_value=normalized.normalized_value,
         verdict=assessment.verdict,
+        verification_status=assessment.verification_status,
+        confidence_level=assessment.confidence_level,
         risk_level=assessment.risk_level,
         risk_score=assessment.risk_score,
         report_count=assessment.report_count,
+        independent_report_count=assessment.independent_report_count,
         first_reported=assessment.first_reported.isoformat() if assessment.first_reported else None,
         last_reported=assessment.last_reported.isoformat() if assessment.last_reported else None,
         top_category=assessment.top_category,
         recent_reports=recent_items,
         distinct_areas_count=assessment.distinct_areas_count,
         message=assessment.message,
+        community_impact_message="Community reports serve as early warning signals to help others check before they trust.",
+        safety_guidance=get_safety_guidance(assessment.top_category),
     )
 
 
