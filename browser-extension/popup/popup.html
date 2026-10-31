@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ScamSentry AI URL Guard</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <!-- 1. Emergency Helpline Strip -->
+  <aside class="emergency-strip" aria-label="Cyber Crime Emergency Helpline">
+    <div class="emergency-content">
+      <span class="emergency-icon">🚨</span>
+      <span class="emergency-text">Lost money? Call <strong>1930</strong> (Cyber Crime Helpline)</span>
+    </div>
+  </aside>
+
+  <!-- 2. Header -->
+  <header class="app-header">
+    <div class="brand-group">
+      <div class="brand-logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
+      </div>
+      <div>
+        <div class="brand-title">
+          <span>ScamSentry</span>
+          <span class="brand-badge">AI</span>
+        </div>
+        <div class="brand-subtitle">URL & Phishing Guard</div>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <!-- Connection Status Badge -->
+      <div id="backend-status-pill" class="status-pill status-demo" title="Backend connection status">
+        <span class="status-dot"></span>
+        <span id="backend-status-text">Connecting...</span>
+      </div>
+
+      <!-- Settings Toggle Button -->
+      <button id="toggle-settings-btn" class="icon-btn" title="Configure Backend API (localhost:8001)" aria-label="Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- 3. Settings Drawer (Collapsible) -->
+  <section id="settings-panel" class="settings-panel hidden">
+    <div class="settings-header">
+      <span class="settings-title">Backend API Settings</span>
+      <button id="close-settings-btn" class="close-btn" aria-label="Close Settings">✕</button>
+    </div>
+
+    <div class="settings-body">
+      <div class="form-group">
+        <label for="backend-url-input">API Base URL</label>
+        <input type="text" id="backend-url-input" placeholder="http://localhost:8001" spellcheck="false">
+        <span class="helper-text">Method: <code>POST</code> &nbsp;|&nbsp; Target: <code>/api/lookup</code></span>
+      </div>
+
+      <div class="form-group">
+        <label for="webapp-url-input">ScamSentry Web Platform</label>
+        <input type="text" id="webapp-url-input" placeholder="http://localhost:3000" spellcheck="false">
+      </div>
+
+      <div class="form-group toggle-group">
+        <label class="switch-label" for="force-mock-checkbox">
+          <input type="checkbox" id="force-mock-checkbox">
+          <span class="toggle-switch"></span>
+          <span class="toggle-text">Enable Mock Mode (Dev Only)</span>
+        </label>
+        <span class="helper-text">Simulates verdicts locally when backend is offline.</span>
+      </div>
+
+      <div class="settings-actions">
+        <button id="test-connection-btn" class="btn btn-secondary btn-sm">Test API Health</button>
+        <button id="save-settings-btn" class="btn btn-primary btn-sm">Save Settings</button>
+      </div>
+      <div id="test-connection-msg" class="connection-msg hidden"></div>
+    </div>
+  </section>
+
+  <!-- 4. Active Target URL Card -->
+  <main class="main-content">
+    <section class="url-card">
+      <div class="url-header">
+        <span class="section-label">Inspected Website</span>
+        <button id="recheck-btn" class="recheck-btn" title="Re-check this URL against the API">
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+          </svg>
+          <span>Check Again</span>
+        </button>
+      </div>
+
+      <div class="url-display">
+        <div id="url-security-icon" class="url-security-icon" title="Protocol">🔒</div>
+        <div class="url-text-wrap">
+          <div id="current-domain" class="current-domain truncate">Detecting active website...</div>
+          <div id="current-full-url" class="current-full-url truncate">about:blank</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5. Dynamic Verdict Card Area -->
+    <section id="verdict-container" class="verdict-container">
+      <!-- Loading State -->
+      <div id="state-loading" class="state-card loading-state">
+        <div class="spinner"></div>
+        <div class="loading-title">Checking with ScamSentry API...</div>
+        <div class="loading-desc">Sending POST request to /api/lookup</div>
+      </div>
+
+      <!-- Verdict: KNOWN_SCAM -->
+      <div id="state-known-scam" class="state-card verdict-scam hidden">
+        <div class="verdict-header">
+          <span class="verdict-tag tag-scam">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+            <span>KNOWN SCAM</span>
+          </span>
+          <span class="risk-pill pill-scam" id="scam-risk-level">High Risk</span>
+        </div>
+
+        <div class="verdict-title">⚠️ Warning: Known Phishing or Fraud Site</div>
+        
+        <!-- Quantitative Metrics Returned from Backend -->
+        <div class="verdict-metrics">
+          <div class="metric-box">
+            <span class="metric-num" id="scam-score">--</span>
+            <span class="metric-lbl">Risk Score</span>
+          </div>
+          <div class="metric-box">
+            <span class="metric-num" id="scam-reports-count">--</span>
+            <span class="metric-lbl">Reports</span>
+          </div>
+          <div class="metric-box">
+            <span class="metric-num truncate" id="scam-category" style="font-size: 11px; padding-top: 4px;">Fraud</span>
+            <span class="metric-lbl">Top Category</span>
+          </div>
+        </div>
+
+        <div class="danger-box">
+          <div class="danger-box-title">CRITICAL SAFETY INSTRUCTION</div>
+          <ul class="guidance-list">
+            <li><strong>DO NOT</strong> enter bank details, UPI PIN, ATM PIN, or passwords.</li>
+            <li><strong>DO NOT</strong> approve remote screen sharing or APK downloads.</li>
+            <li>Close this page immediately. If credentials were submitted, call <strong>1930</strong>.</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Verdict: SUSPICIOUS -->
+      <div id="state-suspicious" class="state-card verdict-suspicious hidden">
+        <div class="verdict-header">
+          <span class="verdict-tag tag-suspicious">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <span>SUSPICIOUS</span>
+          </span>
+          <span class="risk-pill pill-suspicious" id="suspicious-risk-level">Medium Risk</span>
+        </div>
+
+        <div class="verdict-title">Caution Advised: Suspicious Indicators</div>
+
+        <div class="verdict-metrics">
+          <div class="metric-box">
+            <span class="metric-num" id="suspicious-score" style="color: var(--risk-amber);">--</span>
+            <span class="metric-lbl">Risk Score</span>
+          </div>
+          <div class="metric-box">
+            <span class="metric-num" id="suspicious-reports-count" style="color: var(--risk-amber);">--</span>
+            <span class="metric-lbl">Reports</span>
+          </div>
+          <div class="metric-box">
+            <span class="metric-num truncate" id="suspicious-category" style="font-size: 11px; color: var(--risk-amber); padding-top: 4px;">Suspicious</span>
+            <span class="metric-lbl">Category</span>
+          </div>
+        </div>
+
+        <div class="caution-box">
+          <div class="caution-box-title">Protective Safety Advice</div>
+          <ul class="guidance-list">
+            <li>Look carefully for subtle character swaps in the address bar.</li>
+            <li>Never pay advance processing fees or lottery redemption charges.</li>
+            <li>Independently verify through published official customer care numbers.</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Verdict: NO_REPORTS (Silence is NOT safety) -->
+      <div id="state-no-reports" class="state-card verdict-no-reports hidden">
+        <div class="verdict-header">
+          <span class="verdict-tag tag-neutral">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            <span>NO REPORTS FOUND</span>
+          </span>
+          <span class="risk-pill pill-neutral">Not Guaranteed Safe</span>
+        </div>
+
+        <div class="verdict-title">No Prior Community Reports</div>
+
+        <div class="neutral-box">
+          <div class="neutral-box-title">Public Safety Notice</div>
+          <p class="neutral-text">
+            <strong>No reports found—not guaranteed safe.</strong>
+          </p>
+          <p class="neutral-subtext">
+            Scam syndicates frequently register brand-new domains, attack citizens for 24–48 hours, and discard them before reports accumulate.
+          </p>
+          <p class="neutral-subtext" style="margin-top: 4px;">
+            If you received this URL via an unsolicited message or caller, proceed with extreme vigilance.
+          </p>
+        </div>
+      </div>
+
+      <!-- Verdict: VERIFIED_BUSINESS -->
+      <div id="state-verified" class="state-card verdict-verified hidden">
+        <div class="verdict-header">
+          <span class="verdict-tag tag-verified">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            <span>VERIFIED BUSINESS</span>
+          </span>
+          <span class="risk-pill pill-verified">Official Portal</span>
+        </div>
+
+        <div class="verdict-title" id="verified-business-title">Official Organization Domain</div>
+        <div class="verdict-summary" id="verified-business-desc">
+          Matches known official directory for registered banking or public utility services.
+        </div>
+
+        <div class="verified-box">
+          <p class="verified-note">
+            Notice: Legitimate banking portals never ask for your UPI PIN or debit card CVV over chat or unsolicited prompts.
+          </p>
+        </div>
+      </div>
+
+      <!-- State: Backend Unavailable / Error -->
+      <div id="state-error" class="state-card error-state hidden">
+        <div class="error-icon">📡</div>
+        <div class="error-title">Backend Server Unavailable</div>
+        <div class="error-desc" id="error-desc-text">
+          Could not reach Avaish's backend at <code>http://localhost:8001/api/lookup</code>.
+        </div>
+        <div class="error-actions">
+          <button id="retry-btn" class="btn btn-secondary btn-sm">Retry Request</button>
+          <button id="switch-mock-btn" class="btn btn-outline btn-sm">Enable Dev Mock Mode</button>
+        </div>
+      </div>
+
+      <!-- State: Browser Internal / Unsupported URL -->
+      <div id="state-internal" class="state-card internal-state hidden">
+        <div class="internal-icon">🧭</div>
+        <div class="internal-title">Internal Browser Resource</div>
+        <div class="internal-desc">Navigate to any public website, link, or checkout page to verify fraud risk.</div>
+      </div>
+
+      <!-- Response Source Badge Strip -->
+      <div id="source-indicator" class="source-strip hidden">
+        <span class="source-dot"></span>
+        <span id="source-text">Live API: http://localhost:8001</span>
+      </div>
+    </section>
+
+    <!-- 6. Development Quick Test Scenarios -->
+    <section class="demo-presets-card">
+      <div class="presets-label">
+        <span>⚡ Quick Test URLs</span>
+        <span class="presets-hint">Simulate or test API</span>
+      </div>
+      <div class="preset-buttons">
+        <button class="preset-btn scam" data-url="https://sbi-kyc-update.in/login">Scam Link</button>
+        <button class="preset-btn suspicious" data-url="https://urgent-bescom-bill.xyz">Suspicious</button>
+        <button class="preset-btn unverified" data-url="https://random-store-2026.in">No Reports</button>
+        <button class="preset-btn verified" data-url="https://sbi.co.in">Verified</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- 7. Footer Actions -->
+  <footer class="app-footer">
+    <div class="action-buttons">
+      <button id="open-webapp-btn" class="btn btn-outline" title="Open ScamSentry AI web dashboard">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        <span>Open Web Platform</span>
+      </button>
+
+      <button id="report-scam-btn" class="btn btn-primary" title="Report this suspicious website anonymously">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <span>Report This URL</span>
+      </button>
+    </div>
+
+    <div class="privacy-note">
+      🔒 <strong>Privacy First:</strong> Verified on demand. Zero browsing history is monitored, saved, or transmitted.
+    </div>
+  </footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>
